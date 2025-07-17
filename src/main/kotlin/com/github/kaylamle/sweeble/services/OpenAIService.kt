@@ -14,7 +14,7 @@ import org.json.JSONArray
 import com.intellij.openapi.diagnostic.Logger
 
 @Service
-open class OpenAIService {
+class OpenAIService {
     companion object {
         private val LOG = Logger.getInstance(OpenAIService::class.java)
         private const val OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
@@ -69,7 +69,7 @@ open class OpenAIService {
     }
 
     // Change from protected open to open internal for mocking
-    open internal fun callOpenAI(apiKey: String, context: String): String {
+    internal fun callOpenAI(apiKey: String, context: String): String {
         val requestBody = JSONObject().apply {
             put("model", "gpt-4")
             put("messages", JSONArray().apply {
