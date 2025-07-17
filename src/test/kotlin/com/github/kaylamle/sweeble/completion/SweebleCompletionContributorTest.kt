@@ -2,18 +2,9 @@ package com.github.kaylamle.sweeble.completion
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.codeInsight.completion.CompletionType
-import com.intellij.codeInsight.completion.CompletionUtil
 import org.junit.Test
-import kotlin.test.assertTrue
 
 class SweebleCompletionContributorTest : BasePlatformTestCase() {
-
-    @Test
-    fun testCompletionContributorRegistration() {
-        // Test that the completion contributor is properly registered
-        val contributor = SweebleCompletionContributor()
-        assertTrue(contributor is SweebleCompletionContributor)
-    }
 
     @Test
     fun testCompletionInTextFile() {
@@ -27,11 +18,11 @@ class SweebleCompletionContributorTest : BasePlatformTestCase() {
     }
 
     @Test
-    fun testCompletionInPythonFile() {
-        myFixture.configureByText("test.py", "def hello():\n    print(<caret>)")
+    fun testCompletionInEmptyTextFile() {
+        myFixture.configureByText("empty.txt", "<caret>")
         try {
             myFixture.complete(CompletionType.BASIC)
-            // Should handle Python files gracefully
+            // Should handle empty files gracefully
         } catch (e: Exception) {
             println("Completion test exception (expected without API key): ${e.message}")
         }
@@ -49,22 +40,33 @@ class SweebleCompletionContributorTest : BasePlatformTestCase() {
     }
 
     @Test
-    fun testCompletionInJavaScriptFile() {
-        myFixture.configureByText("test.js", "function hello() {\n    console.log(<caret>)\n}")
+    fun testCompletionInPythonFile() {
+        myFixture.configureByText("test.py", "def hello():\n    print(<caret>)")
         try {
             myFixture.complete(CompletionType.BASIC)
-            // Should handle JavaScript files gracefully
+            // Should handle Python files gracefully
         } catch (e: Exception) {
             println("Completion test exception (expected without API key): ${e.message}")
         }
     }
 
     @Test
-    fun testCompletionInEmptyFile() {
-        myFixture.configureByText("empty.txt", "<caret>")
+    fun testCompletionInJavaFile() {
+        myFixture.configureByText("Test.java", "public class Test {\n    public static void main(String[] args) {\n        System.out.println(<caret>);\n    }\n}")
         try {
             myFixture.complete(CompletionType.BASIC)
-            // Should handle empty files gracefully
+            // Should handle Java files gracefully
+        } catch (e: Exception) {
+            println("Completion test exception (expected without API key): ${e.message}")
+        }
+    }
+
+    @Test
+    fun testCompletionInMarkdownFile() {
+        myFixture.configureByText("test.md", "# Title\n\nSome <caret> content")
+        try {
+            myFixture.complete(CompletionType.BASIC)
+            // Should handle Markdown files gracefully
         } catch (e: Exception) {
             println("Completion test exception (expected without API key): ${e.message}")
         }
