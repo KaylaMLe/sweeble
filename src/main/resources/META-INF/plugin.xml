@@ -11,6 +11,6 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow factoryClass="com.github.kaylamle.sweeble.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
         <postStartupActivity implementation="com.github.kaylamle.sweeble.startup.MyProjectActivity" />
-        <completion.contributor language="ANY" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
+        <completion.contributor language="TEXT" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
     </extensions>
 </idea-plugin>
