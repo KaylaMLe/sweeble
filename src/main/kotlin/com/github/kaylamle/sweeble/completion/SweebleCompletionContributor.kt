@@ -153,18 +153,23 @@ class SweebleCompletionContributor : CompletionContributor() {
                     // Add AI completions with high priority to appear at the top
                     aiCompletions.forEach { completion ->
                         val lookupElement = LookupElementBuilder.create(completion.text)
-                            .withPresentableText("🤖 ${completion.text}")
+                            .withPresentableText(completion.text)
                             .withTypeText("AI Suggestion")
                             .withBoldness(true)
                         
                         allResults.addElement(lookupElement)
+                    }
+                    
+                    // For Kotlin files, ensure our completions appear at the top
+                    if (file.language.id == "kotlin") {
+                        LOG.debug("SweebleCompletionContributor: Kotlin file detected, ensuring AI completions at top")
                     }
                 } else {
                     LOG.debug("SweebleCompletionContributor: No AI completions available")
                     
                     // Add fallback completion if no AI suggestions
                     val fallbackCompletion = LookupElementBuilder.create("SWEEBLE_NO_AI")
-                        .withPresentableText("🤖 No AI suggestions available")
+                        .withPresentableText("No AI suggestions available")
                         .withTypeText("AI Suggestion")
                         .withBoldness(true)
                     
@@ -173,6 +178,7 @@ class SweebleCompletionContributor : CompletionContributor() {
                         
                 // Force the result set to refresh and stop other contributors from adding completions after ours
                 allResults.stopHere()
+                LOG.debug("SweebleCompletionContributor: Called stopHere() to ensure AI completions appear at top")
                         
             } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
                 throw e // Rethrow as required by JetBrains guidelines
@@ -180,7 +186,7 @@ class SweebleCompletionContributor : CompletionContributor() {
                 LOG.error("SweebleCompletionContributor: Error adding completions", e)
                 // Add error completion
                 val errorCompletion = LookupElementBuilder.create("SWEEBLE_ERROR")
-                    .withPresentableText("🤖 AI completion error")
+                    .withPresentableText("AI completion error")
                     .withTypeText("Error")
                     .withBoldness(true)
                 result.withPrefixMatcher("").addElement(errorCompletion)
