@@ -16,6 +16,11 @@
         <completion.contributor language="Python" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
         <completion.contributor language="JAVA" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
         <completion.contributor language="Markdown" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
+        <inlayHintsProvider language="TEXT" implementationClass="com.github.kaylamle.sweeble.inlay.SweebleInlayHintsProvider" />
+        <inlayHintsProvider language="kotlin" implementationClass="com.github.kaylamle.sweeble.inlay.SweebleInlayHintsProvider" />
+        <inlayHintsProvider language="Python" implementationClass="com.github.kaylamle.sweeble.inlay.SweebleInlayHintsProvider" />
+        <inlayHintsProvider language="JAVA" implementationClass="com.github.kaylamle.sweeble.inlay.SweebleInlayHintsProvider" />
+        <inlayHintsProvider language="Markdown" implementationClass="com.github.kaylamle.sweeble.inlay.SweebleInlayHintsProvider" />
     </extensions>
 
     <actions>

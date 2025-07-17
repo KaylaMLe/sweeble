@@ -118,6 +118,13 @@ class SweebleCompletionContributor : CompletionContributor() {
             PlatformPatterns.psiElement().inFile(PlatformPatterns.psiFile().withName(PlatformPatterns.string().endsWith(".md"))),
             providerWithLogging("Markdown (.md files)")
         )
+        
+        // Register for inline completions (like GitHub Copilot)
+        extend(
+            CompletionType.BASIC,
+            PlatformPatterns.psiElement(),
+            inlineCompletionProvider()
+        )
     }
 
     private fun providerWithLogging(language: String): CompletionProvider<CompletionParameters> = object : CompletionProvider<CompletionParameters>() {
@@ -191,6 +198,56 @@ class SweebleCompletionContributor : CompletionContributor() {
                     .withBoldness(true)
                 result.withPrefixMatcher("").addElement(errorCompletion)
             }
+        }
+    }
+
+    private fun inlineCompletionProvider(): CompletionProvider<CompletionParameters> = object : CompletionProvider<CompletionParameters>() {
+        override fun addCompletions(
+            parameters: CompletionParameters,
+            context: ProcessingContext,
+            result: CompletionResultSet
+        ) {
+            try {
+                val project = parameters.position.project
+                val file = parameters.position.containingFile
+                val editor = parameters.editor
+                val offset = parameters.offset
+
+                // Only show inline completions for supported languages
+                if (!isSupportedLanguage(file.language.id)) {
+                    return
+                }
+
+                // Check if file is gitignored
+                if (GitService.isGitIgnored(project, file)) {
+                    return
+                }
+
+                // Get AI completions
+                val openAIService = OpenAIService.getInstance(project)
+                val aiCompletions = openAIService.getCompletions(project, file, editor, offset)
+
+                if (aiCompletions.isNotEmpty()) {
+                    val suggestion = aiCompletions.first().text
+                    
+                    // Create inline completion element
+                    val inlineElement = LookupElementBuilder.create(suggestion)
+                        .withPresentableText(suggestion)
+                        .withTypeText("AI Inline")
+                        .withBoldness(true)
+                    
+                    // Add as inline completion
+                    result.addElement(inlineElement)
+                    LOG.debug("SweebleCompletionContributor: Added inline completion: $suggestion")
+                }
+
+            } catch (e: Exception) {
+                LOG.error("SweebleCompletionContributor: Error adding inline completion", e)
+            }
+        }
+
+        private fun isSupportedLanguage(languageId: String): Boolean {
+            return languageId in listOf("JAVA", "Python", "kotlin", "TEXT", "Markdown")
         }
     }
 } 
