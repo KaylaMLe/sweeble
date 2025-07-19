@@ -40,39 +40,12 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
 
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
         LOG.info("SweebleInlineCompletionProvider: isEnabled called with event: ${event.javaClass.simpleName}")
-        
-        // Log more details about the event
-        try {
-            val eventMethods = event.javaClass.methods
-            LOG.info("Event methods: ${eventMethods.map { it.name }}")
-            
-            // Try to get more info about the event
-            eventMethods.find { it.name == "getEditor" && it.parameterCount == 0 }?.let { method ->
-                try {
-                    val editor = method.invoke(event) as? Editor
-                    if (editor != null) {
-                        LOG.info("Event has editor: ${editor.javaClass.name}")
-                    }
-                } catch (e: Exception) {
-                    LOG.debug("Could not get editor from event: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            LOG.debug("Error inspecting event: ${e.message}")
-        }
-        
         return true
     }
 
     override suspend fun getSuggestion(request: InlineCompletionRequest): InlineCompletionSuggestion {
         LOG.info("SweebleInlineCompletionProvider: getSuggestion called")
         
-        // For now, let's return a simple test suggestion to see if it works
-        LOG.info("SweebleInlineCompletionProvider: Returning test suggestion")
-        return createTestSuggestion()
-        
-        // Commented out the AI logic for now to test basic functionality
-        /*
         // Get context from the request
         val context = extractContext(request)
         LOG.info("Extracted context: '$context'")
@@ -84,10 +57,12 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
         }
         
         // Get AI completion
+        LOG.info("Calling OpenAI API for completion...")
         val completion = openAIService.getCompletion(context)
         LOG.info("AI completion: '$completion'")
         
         return if (completion != null && completion.isNotBlank()) {
+            LOG.info("Creating AI suggestion with completion: '$completion'")
             // Create a suggestion with the AI completion using InlineCompletionTextElement
             object : InlineCompletionSuggestion() {
                 override val suggestionFlow: Flow<InlineCompletionElement> = flowOf(
@@ -107,7 +82,6 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
             LOG.info("No AI completion received, returning empty suggestion")
             createEmptySuggestion()
         }
-        */
     }
     
     private fun createTestSuggestion(): InlineCompletionSuggestion {
@@ -175,7 +149,7 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
                             }
                         }
                     } catch (e: Exception) {
-                        LOG.debug("Error accessing $methodName: ${e.message}")
+                        LOG.info("Error accessing $methodName: ${e.message}")
                     }
                 }
             }

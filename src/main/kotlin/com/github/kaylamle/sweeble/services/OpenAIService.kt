@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -28,11 +29,15 @@ class OpenAIService {
         temperature: Double = 0.3
     ): String? {
         return try {
+            LOG.info("OpenAIService: Starting completion request")
+            
             val apiKey = System.getenv("OPENAI_API_KEY")
             if (apiKey.isNullOrBlank()) {
                 LOG.warn("OpenAI API key not found in environment variables")
                 return null
             }
+            
+            LOG.info("OpenAI API key found (length: ${apiKey.length})")
 
             // Properly escape the prompt for JSON
             val escapedPrompt = prompt
@@ -57,7 +62,7 @@ class OpenAIService {
                 }
             """.trimIndent()
 
-            LOG.debug("Sending request to OpenAI: $requestBody")
+            LOG.info("Sending request to OpenAI with prompt length: ${prompt.length}")
 
             val request = HttpRequest.newBuilder()
                 .uri(URI.create(API_URL))
@@ -69,23 +74,25 @@ class OpenAIService {
             // Add timeout to prevent hanging
             val response = withTimeout(5000) { // 5 second timeout
                 withContext(Dispatchers.IO) {
+                    LOG.info("Making HTTP request to OpenAI...")
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString())
                 }
             }
 
+            LOG.info("OpenAI response status: ${response.statusCode()}")
+
             if (response.statusCode() == 200) {
-                // Simple JSON parsing - in production you'd use a proper JSON library
                 val responseBody = response.body()
-                LOG.debug("OpenAI response: $responseBody")
+                LOG.info("OpenAI response body length: ${responseBody.length}")
+                LOG.info("OpenAI response body: $responseBody")
                 
-                val contentStart = responseBody.indexOf("\"content\":\"") + 12
-                val contentEnd = responseBody.indexOf("\"", contentStart)
-                if (contentStart > 11 && contentEnd > contentStart) {
-                    responseBody.substring(contentStart, contentEnd)
-                        .replace("\\n", "\n")
-                        .replace("\\\"", "\"")
-                        .replace("\\\\", "\\")
+                // Parse JSON properly
+                val completion = parseOpenAIResponse(responseBody)
+                if (completion != null) {
+                    LOG.info("Extracted completion: '$completion'")
+                    completion
                 } else {
+                    LOG.warn("Could not parse content from OpenAI response")
                     null
                 }
             } else {
@@ -93,16 +100,59 @@ class OpenAIService {
                 null
             }
         } catch (e: TimeoutCancellationException) {
-            LOG.debug("OpenAI API call timed out")
+            LOG.info("OpenAI API call timed out")
             null
         } catch (e: Exception) {
             // Check if it's a cancellation exception by checking the message
             if (e.message?.contains("cancelled", ignoreCase = true) == true || 
                 e.message?.contains("cancellation", ignoreCase = true) == true) {
-                LOG.debug("OpenAI API call was cancelled")
+                LOG.info("OpenAI API call was cancelled")
             } else {
                 LOG.error("Error calling OpenAI API", e)
             }
+            null
+        }
+    }
+    
+    private fun parseOpenAIResponse(responseBody: String): String? {
+        return try {
+            LOG.info("Attempting to parse JSON response...")
+            val json = JSONObject(responseBody)
+            LOG.info("JSON parsed successfully")
+            
+            // Navigate through the JSON structure like in JavaScript
+            val choices = json.getJSONArray("choices")
+            LOG.info("Found choices array with length: ${choices.length()}")
+            
+            if (choices.length() > 0) {
+                val firstChoice = choices.getJSONObject(0)
+                LOG.info("Got first choice: $firstChoice")
+                
+                val message = firstChoice.getJSONObject("message")
+                LOG.info("Got message: $message")
+                
+                val content = message.getString("content")
+                LOG.info("Raw content from JSON: '$content'")
+                
+                if (content.isNotBlank()) {
+                    val processedContent = content
+                        .replace("\\n", "\n")
+                        .replace("\\\"", "\"")
+                        .replace("\\\\", "\\")
+                    LOG.info("Processed content: '$processedContent'")
+                    return processedContent
+                } else {
+                    LOG.warn("Content is blank")
+                }
+            } else {
+                LOG.warn("Choices array is empty")
+            }
+            
+            LOG.warn("No valid content found in OpenAI response")
+            null
+        } catch (e: Exception) {
+            LOG.error("Error parsing OpenAI JSON response: ${e.javaClass.simpleName} - ${e.message}")
+            LOG.error("Stack trace:", e)
             null
         }
     }
