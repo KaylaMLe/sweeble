@@ -1,109 +1,141 @@
 package com.github.kaylamle.sweeble.services
 
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.editor.Editor
-import com.intellij.psi.PsiFile
-import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.Logger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.net.URI
 import java.time.Duration
-import org.json.JSONObject
-import org.json.JSONArray
-import com.intellij.openapi.diagnostic.Logger
 
-@Service
 class OpenAIService {
     companion object {
         private val LOG = Logger.getInstance(OpenAIService::class.java)
-        private const val OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-        fun getInstance(project: Project): OpenAIService {
-            return project.getService(OpenAIService::class.java)
-        }
+        private const val API_URL = "https://api.openai.com/v1/chat/completions"
+        private const val MODEL = "gpt-3.5-turbo"
     }
 
     private val httpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(10))
+        .connectTimeout(Duration.ofSeconds(3)) // Faster timeout
         .build()
 
-    fun getCompletions(project: Project, file: PsiFile, editor: Editor, offset: Int): List<Completion> {
+    suspend fun getCompletion(prompt: String, language: String, maxTokens: Int = 20, temperature: Double = 0.3): String? {
         return try {
-            val apiKey = getApiKey()
+            LOG.info("OpenAIService: Starting completion request")
+            val apiKey = System.getenv("OPENAI_API_KEY")
             if (apiKey.isNullOrBlank()) {
-                LOG.warn("OpenAI API key not configured")
-                return emptyList()
+                LOG.warn("OpenAI API key not found in environment variables")
+                return null
             }
-            val context = buildContext(file, editor, offset)
-            val response = callOpenAI(apiKey, context)
-            parseCompletions(response)
+            LOG.info("OpenAI API key found (length: [${apiKey.length})")
+            val escapedPrompt = prompt
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            val messages = JSONObject()
+                .put("role", "user")
+                .put(
+                    "content",
+                    "Complete the following $language code. Return ONLY the completion that should appear after the cursor. Include newlines and proper formatting. Do not repeat what's already there. Make it a complete, valid $language statement or expression: $escapedPrompt"
+                )
+
+            val requestBody = JSONObject()
+                .put("model", MODEL)
+                .put("messages", listOf(messages))
+                .put("max_tokens", maxTokens)
+                .put("temperature", temperature)
+                .put("stop", listOf("````"))
+                .toString()
+            LOG.info("Sending request to OpenAI with prompt length: ${prompt.length}")
+            val request = HttpRequest.newBuilder()
+                .uri(URI.create(API_URL))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer $apiKey")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build()
+            val response = withTimeout(5000) {
+                withContext(Dispatchers.IO) {
+                    LOG.info("Making HTTP request to OpenAI...")
+                    httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+                }
+            }
+            LOG.info("OpenAI response status: ${response.statusCode()}")
+            if (response.statusCode() == 200) {
+                val responseBody = response.body()
+                LOG.info("OpenAI response body length: ${responseBody.length}")
+                LOG.info("OpenAI response body: $responseBody")
+                val completion = parseOpenAIResponse(responseBody)
+                if (completion != null) {
+                    LOG.info("Extracted completion: '$completion'")
+                    completion
+                } else {
+                    LOG.warn("Could not parse content from OpenAI response")
+                    null
+                }
+            } else {
+                LOG.error("OpenAI API error: ${response.statusCode()} - ${response.body()}")
+                null
+            }
+        } catch (e: TimeoutCancellationException) {
+            LOG.info("OpenAI API call timed out")
+            null
         } catch (e: Exception) {
-            LOG.error("Error getting completions", e)
-            emptyList()
+            if (e.message?.contains("cancelled", ignoreCase = true) == true || 
+                e.message?.contains("cancellation", ignoreCase = true) == true) {
+                LOG.info("OpenAI API call was cancelled")
+            } else {
+                LOG.error("Error calling OpenAI API", e)
+            }
+            null
         }
     }
-
-    private fun getApiKey(): String? {
-        // TODO: Get from settings/configuration
-        return System.getenv("OPENAI_API_KEY")
-    }
-
-    private fun buildContext(file: PsiFile, editor: Editor, offset: Int): String {
-        val document = editor.document
-        val fileContent = document.text
-        val beforeCursor = fileContent.substring(0, offset)
-        val afterCursor = fileContent.substring(offset)
-        return """
-            File: ${file.name}
-            Language: ${file.language.displayName}
-
-            Context before cursor:
-            $beforeCursor
-
-            Context after cursor:
-            $afterCursor
-
-            Please provide relevant code completions that would make sense at this position.
-            Return only the completion text, one per line.
-        """.trimIndent()
-    }
-
-    // Change from protected open to open internal for mocking
-    internal fun callOpenAI(apiKey: String, context: String): String {
-        val requestBody = JSONObject().apply {
-            put("model", "gpt-4")
-            put("messages", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "system")
-                    put("content", "You are a helpful coding assistant. Provide concise, relevant code completions.")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", context)
-                })
-            })
-            put("max_tokens", 150)
-            put("temperature", 0.3)
+    
+    private fun parseOpenAIResponse(responseBody: String): String? {
+        return try {
+            LOG.info("Attempting to parse JSON response...")
+            val json = JSONObject(responseBody)
+            LOG.info("JSON parsed successfully")
+            
+            // Navigate through the JSON structure like in JavaScript
+            val choices = json.getJSONArray("choices")
+            LOG.info("Found choices array with length: ${choices.length()}")
+            
+            if (choices.length() > 0) {
+                val firstChoice = choices.getJSONObject(0)
+                LOG.info("Got first choice: $firstChoice")
+                
+                val message = firstChoice.getJSONObject("message")
+                LOG.info("Got message: $message")
+                
+                val content = message.getString("content")
+                LOG.info("Raw content from JSON: '$content'")
+                
+                if (content.isNotBlank()) {
+                    val processedContent = content
+                        .replace("\\n", "\n")
+                        .replace("\\\"", "\"")
+                        .replace("\\\\", "\\")
+                    LOG.info("Processed content: '$processedContent'")
+                    return processedContent
+                } else {
+                    LOG.warn("Content is blank")
+                }
+            } else {
+                LOG.warn("Choices array is empty")
+            }
+            
+            LOG.warn("No valid content found in OpenAI response")
+            null
+        } catch (e: Exception) {
+            LOG.error("Error parsing OpenAI JSON response: ${e.javaClass.simpleName} - ${e.message}")
+            LOG.error("Stack trace:", e)
+            null
         }
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create(OPENAI_API_URL))
-            .header("Content-Type", "application/json")
-            .header("Authorization", "Bearer $apiKey")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-            .build()
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-        return response.body()
     }
-
-    private fun parseCompletions(response: String): List<Completion> {
-        val jsonResponse = JSONObject(response)
-        val choices = jsonResponse.getJSONArray("choices")
-        if (choices.length() == 0) return emptyList()
-        val content = choices.getJSONObject(0).getJSONObject("message").getString("content")
-        return content.lines()
-            .filter { it.isNotBlank() }
-            .map { Completion(it.trim()) }
-    }
-}
-
-data class Completion(val text: String) 
+} 

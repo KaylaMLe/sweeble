@@ -5,19 +5,10 @@
     <vendor>kaylamle</vendor>
 
     <depends>com.intellij.modules.platform</depends>
-
-    <resource-bundle>messages.MyBundle</resource-bundle>
+    <depends>com.intellij.modules.java</depends>
+    <depends>com.intellij.modules.lang</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.kaylamle.sweeble.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
-        <postStartupActivity implementation="com.github.kaylamle.sweeble.startup.MyProjectActivity" />
-        <completion.contributor language="TEXT" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
-        <completion.contributor language="kotlin" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
-        <completion.contributor language="Python" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
-        <completion.contributor language="JAVA" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
-        <completion.contributor language="Markdown" implementationClass="com.github.kaylamle.sweeble.completion.SweebleCompletionContributor" />
+        <inline.completion.provider id="SweebleInlineCompletionProvider" implementation="com.github.kaylamle.sweeble.inline.SweebleInlineCompletionProvider" />
     </extensions>
-
-    <actions>
-    </actions>
 </idea-plugin>
