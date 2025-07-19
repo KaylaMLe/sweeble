@@ -5,7 +5,10 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionRequest
 import com.intellij.codeInsight.inline.completion.InlineCompletionSuggestion
 import com.intellij.codeInsight.inline.completion.InlineCompletionEvent
 import com.intellij.codeInsight.inline.completion.InlineCompletionProviderID
+import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
 import com.intellij.openapi.diagnostic.Logger
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 class SweebleInlineCompletionProvider : InlineCompletionProvider {
     companion object {
@@ -26,34 +29,56 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
     override suspend fun getSuggestion(request: InlineCompletionRequest): InlineCompletionSuggestion {
         LOG.debug("SweebleInlineCompletionProvider: getSuggestion called")
         
-        // Let me try to find the correct way to create an InlineCompletionSuggestion
-        // Since InlineCompletionSuggestion is deprecated but still works, there must be a way to create it
-        
-        // Let me try to look for factory methods or concrete implementations
+        // Simple test: Let's try to create a basic suggestion
+        // First, let me inspect what we have available in the request
         try {
-            // Try to find if there are any static factory methods
-            val suggestionClass = InlineCompletionSuggestion::class.java
-            LOG.debug("InlineCompletionSuggestion class: ${suggestionClass.name}")
+            LOG.debug("Request class: ${request::class.java.name}")
+            LOG.debug("Request methods: ${request::class.java.methods.map { it.name }}")
             
-            // Look for static methods that might be factory methods
-            val staticMethods = suggestionClass.methods.filter { java.lang.reflect.Modifier.isStatic(it.modifiers) }
-            LOG.debug("InlineCompletionSuggestion static methods: ${staticMethods.size}")
-            staticMethods.forEach { method ->
-                LOG.debug("  Static method: ${method.name} -> ${method.returnType.name}")
-            }
-            
-            // Look for constructors
-            val constructors = suggestionClass.constructors
-            LOG.debug("InlineCompletionSuggestion constructors: ${constructors.size}")
-            constructors.forEach { constructor ->
-                LOG.debug("  Constructor: ${constructor.parameterTypes.map { it.name }}")
+            // Let me try to find if there are any properties we can access
+            val requestMethods = request::class.java.methods
+            requestMethods.forEach { method ->
+                if (method.parameterCount == 0 && method.name.startsWith("get")) {
+                    try {
+                        val value = method.invoke(request)
+                        LOG.debug("  ${method.name}: $value")
+                    } catch (e: Exception) {
+                        LOG.debug("  ${method.name}: Error accessing")
+                    }
+                }
             }
             
         } catch (e: Exception) {
-            LOG.error("Error inspecting InlineCompletionSuggestion", e)
+            LOG.error("Error inspecting request", e)
         }
         
-        // For now, let me try to find the correct way to create an InlineCompletionSuggestion
-        throw UnsupportedOperationException("InlineCompletionSuggestion creation not implemented yet")
+        // Let me try to find the InlineCompletionSingleSuggestion interface
+        try {
+            val singleSuggestionClass = Class.forName("com.intellij.codeInsight.inline.completion.InlineCompletionSingleSuggestion")
+            LOG.debug("Found InlineCompletionSingleSuggestion interface: ${singleSuggestionClass.name}")
+            LOG.debug("Is interface: ${singleSuggestionClass.isInterface}")
+            
+            // Look for methods in the interface
+            val interfaceMethods = singleSuggestionClass.methods
+            LOG.debug("InlineCompletionSingleSuggestion methods: ${interfaceMethods.size}")
+            interfaceMethods.forEach { method ->
+                LOG.debug("  Method: ${method.name} -> ${method.returnType.name}")
+            }
+            
+        } catch (e: ClassNotFoundException) {
+            LOG.debug("InlineCompletionSingleSuggestion interface not found")
+        } catch (e: Exception) {
+            LOG.error("Error looking for InlineCompletionSingleSuggestion", e)
+        }
+        
+        // Let me try to create a simple test suggestion
+        // Since InlineCompletionSuggestion is abstract, let me try to create a mock implementation
+        return object : InlineCompletionSuggestion() {
+            override val suggestionFlow: Flow<InlineCompletionElement> = flowOf()
+            
+            override fun toString(): String {
+                return "SweebleTestSuggestion"
+            }
+        }
     }
 } 
