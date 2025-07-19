@@ -1,8 +1,8 @@
 package com.github.kaylamle.sweeble.startup
 
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.StartupActivity
-import com.intellij.openapi.diagnostic.Logger
 
 class MyProjectActivity : StartupActivity {
     companion object {
@@ -10,6 +10,8 @@ class MyProjectActivity : StartupActivity {
     }
 
     override fun runActivity(project: Project) {
-        LOG.info("Sweeble: Inline completion plugin initialized for project ${project.name}")
+        LOG.info("Sweeble: Project activity started for project: ${project.name}")
+        LOG.info("Sweeble: Inline completion provider should be registered via plugin.xml")
+        LOG.info("Sweeble: Project activity completed")
     }
 }
