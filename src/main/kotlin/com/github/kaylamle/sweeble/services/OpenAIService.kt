@@ -31,27 +31,27 @@ class OpenAIService {
                 LOG.warn("OpenAI API key not found in environment variables")
                 return null
             }
-            LOG.info("OpenAI API key found (length:  [${apiKey.length})")
+            LOG.info("OpenAI API key found (length: [${apiKey.length})")
             val escapedPrompt = prompt
                 .replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t")
-            val requestBody = """
-                {
-                    "model": "$MODEL",
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": "Complete the following $language code. Return ONLY the completion that should appear after the cursor. Include newlines and proper formatting. Do not repeat what's already there. Make it a complete, valid $language statement or expression: $escapedPrompt"
-                        }
-                    ],
-                    "max_tokens": $maxTokens,
-                    "temperature": $temperature,
-                    "stop": ["````"]
-                }
-            """.trimIndent()
+            val messages = JSONObject()
+                .put("role", "user")
+                .put(
+                    "content",
+                    "Complete the following $language code. Return ONLY the completion that should appear after the cursor. Include newlines and proper formatting. Do not repeat what's already there. Make it a complete, valid $language statement or expression: $escapedPrompt"
+                )
+
+            val requestBody = JSONObject()
+                .put("model", MODEL)
+                .put("messages", listOf(messages))
+                .put("max_tokens", maxTokens)
+                .put("temperature", temperature)
+                .put("stop", listOf("````"))
+                .toString()
             LOG.info("Sending request to OpenAI with prompt length: ${prompt.length}")
             val request = HttpRequest.newBuilder()
                 .uri(URI.create(API_URL))
