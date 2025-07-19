@@ -34,6 +34,8 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity("2025.1.3")
         testFramework(TestFrameworkType.Platform)
+        
+        // Removed custom modules block
     }
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
