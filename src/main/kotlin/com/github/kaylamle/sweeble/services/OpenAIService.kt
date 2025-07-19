@@ -23,70 +23,53 @@ class OpenAIService {
         .connectTimeout(Duration.ofSeconds(3)) // Faster timeout
         .build()
 
-    suspend fun getCompletion(
-        prompt: String,
-        maxTokens: Int = 20, // Shorter completions for faster response
-        temperature: Double = 0.3
-    ): String? {
+    suspend fun getCompletion(prompt: String, language: String, maxTokens: Int = 20, temperature: Double = 0.3): String? {
         return try {
             LOG.info("OpenAIService: Starting completion request")
-            
             val apiKey = System.getenv("OPENAI_API_KEY")
             if (apiKey.isNullOrBlank()) {
                 LOG.warn("OpenAI API key not found in environment variables")
                 return null
             }
-            
-            LOG.info("OpenAI API key found (length: ${apiKey.length})")
-
-            // Properly escape the prompt for JSON
+            LOG.info("OpenAI API key found (length:  [${apiKey.length})")
             val escapedPrompt = prompt
                 .replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t")
-
             val requestBody = """
                 {
                     "model": "$MODEL",
                     "messages": [
                         {
                             "role": "user",
-                            "content": "Complete the following code. Return only the completion, no explanations: $escapedPrompt"
+                            "content": "Complete the following $language code. Return ONLY the completion that should appear after the cursor. Include newlines and proper formatting. Do not repeat what's already there. Make it a complete, valid $language statement or expression: $escapedPrompt"
                         }
                     ],
                     "max_tokens": $maxTokens,
                     "temperature": $temperature,
-                    "stop": ["\n", "```"]
+                    "stop": ["````"]
                 }
             """.trimIndent()
-
             LOG.info("Sending request to OpenAI with prompt length: ${prompt.length}")
-
             val request = HttpRequest.newBuilder()
                 .uri(URI.create(API_URL))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $apiKey")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build()
-
-            // Add timeout to prevent hanging
-            val response = withTimeout(5000) { // 5 second timeout
+            val response = withTimeout(5000) {
                 withContext(Dispatchers.IO) {
                     LOG.info("Making HTTP request to OpenAI...")
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString())
                 }
             }
-
             LOG.info("OpenAI response status: ${response.statusCode()}")
-
             if (response.statusCode() == 200) {
                 val responseBody = response.body()
                 LOG.info("OpenAI response body length: ${responseBody.length}")
                 LOG.info("OpenAI response body: $responseBody")
-                
-                // Parse JSON properly
                 val completion = parseOpenAIResponse(responseBody)
                 if (completion != null) {
                     LOG.info("Extracted completion: '$completion'")
@@ -103,7 +86,6 @@ class OpenAIService {
             LOG.info("OpenAI API call timed out")
             null
         } catch (e: Exception) {
-            // Check if it's a cancellation exception by checking the message
             if (e.message?.contains("cancelled", ignoreCase = true) == true || 
                 e.message?.contains("cancellation", ignoreCase = true) == true) {
                 LOG.info("OpenAI API call was cancelled")
