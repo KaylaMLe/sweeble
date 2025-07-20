@@ -17,14 +17,31 @@ import com.github.kaylamle.sweeble.services.OpenAIService
 import com.github.kaylamle.sweeble.services.SweebleSettingsState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.awt.Color
+import java.util.concurrent.atomic.AtomicLong
+import java.security.MessageDigest
 
 class SweebleInlineCompletionProvider : InlineCompletionProvider {
     companion object {
         private val LOG = Logger.getInstance(SweebleInlineCompletionProvider::class.java)
+        private const val DEBOUNCE_DELAY_MS = 300L // Wait 300ms before processing a request
     }
 
     private val openAIService = OpenAIService()
+    
+    // Track the current request to cancel previous ones
+    private var currentRequestJob: Job? = null
+    private val requestCounter = AtomicLong(0)
+    private var lastProcessedContextHash: String? = null
 
     init {
         LOG.info("SweebleInlineCompletionProvider: Initializing...")
@@ -68,6 +85,17 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
             override fun toString(): String {
                 return "SweebleEmptySuggestion"
             }
+        }
+    }
+    
+    private fun createContextHash(context: String): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hashBytes = digest.digest(context.toByteArray())
+            hashBytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            LOG.error("Error creating context hash", e)
+            context.hashCode().toString()
         }
     }
     
@@ -168,7 +196,12 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
     }
 
     override suspend fun getSuggestion(request: InlineCompletionRequest): InlineCompletionSuggestion {
-        LOG.debug("SweebleInlineCompletionProvider: getSuggestion called")
+        val requestId = requestCounter.incrementAndGet()
+        LOG.debug("SweebleInlineCompletionProvider: getSuggestion called with request ID: $requestId")
+        
+        // Cancel any previous request
+        currentRequestJob?.cancel()
+        
         val (context, language) = extractContext(request)
         LOG.debug("Extracted context: '$context' with language: '$language'")
         
@@ -197,27 +230,66 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
             }
         }
         
-        LOG.debug("Calling OpenAI API for completion...")
-        val completion = openAIService.getCompletion(context, language)
-        LOG.info("AI completion: '$completion'")
-        return if (completion != null && completion.isNotBlank()) {
-            LOG.info("Creating AI suggestion with completion: '$completion'")
-            object : InlineCompletionSuggestion() {
-                override val suggestionFlow: Flow<InlineCompletionElement> = flowOf(
-                    InlineCompletionTextElement(completion) { editor ->
-                        TextAttributes().apply {
-                            foregroundColor = Color.GRAY
-                            fontType = 0
-                        }
-                    }
-                )
-                override fun toString(): String {
-                    return "SweebleAISuggestion: $completion"
+        // Check if this context is identical to the last processed context
+        val contextHash = createContextHash(context)
+        if (contextHash == lastProcessedContextHash) {
+            LOG.debug("Context identical to last processed context, skipping request $requestId")
+            return createEmptySuggestion()
+        }
+        
+        // Create a mutable state flow for the suggestion elements
+        val suggestionElements = MutableStateFlow<InlineCompletionElement?>(null)
+        
+        // Create a new job for this request
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Debounce: wait a bit before processing to avoid rapid successive requests
+                delay(DEBOUNCE_DELAY_MS)
+                
+                // Check if this request is still current after debounce
+                if (currentRequestJob != this) {
+                    LOG.debug("Request $requestId was superseded during debounce period")
+                    return@launch
                 }
+                
+                LOG.debug("Calling OpenAI API for completion with request ID: $requestId...")
+                val completion = openAIService.getCompletion(context, language)
+                LOG.info("AI completion for request $requestId: '$completion'")
+                
+                // Check if this request is still current
+                if (currentRequestJob == this) {
+                    if (completion != null && completion.isNotBlank()) {
+                        LOG.info("Creating AI suggestion with completion for request $requestId: '$completion'")
+                        val element = InlineCompletionTextElement(completion) { editor ->
+                            TextAttributes().apply {
+                                foregroundColor = Color.GRAY
+                                fontType = 0
+                            }
+                        }
+                        suggestionElements.value = element
+                        lastProcessedContextHash = contextHash
+                    } else {
+                        LOG.debug("No valid AI completion received for request $requestId")
+                    }
+                } else {
+                    LOG.debug("Request $requestId was superseded by a newer request, discarding result")
+                }
+            } catch (e: CancellationException) {
+                LOG.debug("Request $requestId was cancelled")
+            } catch (e: Exception) {
+                LOG.error("Error in request $requestId", e)
             }
-        } else {
-            LOG.debug("No valid AI completion received, returning empty suggestion")
-            createEmptySuggestion()
+        }
+        
+        currentRequestJob = job
+        
+        // Return a suggestion that will be updated asynchronously
+        return object : InlineCompletionSuggestion() {
+            override val suggestionFlow: Flow<InlineCompletionElement> = suggestionElements.filterNotNull()
+            
+            override fun toString(): String {
+                return "SweebleAsyncSuggestion(requestId: $requestId)"
+            }
         }
     }
 }

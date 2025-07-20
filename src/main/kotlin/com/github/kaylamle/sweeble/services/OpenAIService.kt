@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -117,10 +118,14 @@ class OpenAIService {
         } catch (e: TimeoutCancellationException) {
             LOG.info("OpenAI API call timed out")
             null
+        } catch (e: CancellationException) {
+            LOG.info("OpenAI API call was cancelled")
+            throw e // Re-throw cancellation exceptions to propagate them
         } catch (e: Exception) {
             if (e.message?.contains("cancelled", ignoreCase = true) == true || 
                 e.message?.contains("cancellation", ignoreCase = true) == true) {
                 LOG.info("OpenAI API call was cancelled")
+                throw CancellationException("Request was cancelled", e)
             } else {
                 LOG.error("Error calling OpenAI API", e)
             }
