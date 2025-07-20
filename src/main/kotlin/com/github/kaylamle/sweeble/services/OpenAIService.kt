@@ -23,7 +23,7 @@ class OpenAIService {
         .connectTimeout(Duration.ofSeconds(3)) // Faster timeout
         .build()
 
-    suspend fun getCompletion(prompt: String, language: String, maxTokens: Int = 20, temperature: Double = 0.3): String? {
+    suspend fun getCompletion(prompt: String, language: String, maxTokens: Int = 100, temperature: Double = 0.3): String? {
         return try {
             LOG.info("OpenAIService: Starting completion request")
             val apiKey = System.getenv("OPENAI_API_KEY")
@@ -38,21 +38,24 @@ class OpenAIService {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t")
-            val messages = JSONObject()
-                .put("role", "user")
-                .put(
-                    "content",
-                    "Complete the following $language code. Return ONLY the completion that should appear after the cursor. Include newlines and proper formatting. Do not repeat what's already there. Make it a complete, valid $language statement or expression: $escapedPrompt"
-                )
-
-            val requestBody = JSONObject()
-                .put("model", MODEL)
-                .put("messages", listOf(messages))
-                .put("max_tokens", maxTokens)
-                .put("temperature", temperature)
-                .put("stop", listOf("````"))
-                .toString()
+            val requestBody = """
+                {
+                    "model": "$MODEL",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "You are a helpful coding assistant. Complete the following $language code. Follow $language best practices. The [CURSOR_HERE] marker shows where the cursor is positioned in the code. Return only the completion that should appear at that position. Use proper formatting (including leading newlines) as appropriate for clean, readable code. Start new lines when it makes sense for readability and proper code structure. If the cursor is not at the end of a line, consider starting your completion with a newline. If the code appears incomplete (e.g., missing braces, incomplete statements), focus on completing it. If you're on an empty line, suggest appropriate code. If the code is already complete, return nothing. Do not use markdown formatting in your response - return only plain code.\n\nCode:\n$escapedPrompt"
+                        }
+                    ],
+                    "max_tokens": $maxTokens,
+                    "temperature": $temperature,
+                    "stop": ["````", "```"]
+                }
+            """.trimIndent()
+            
             LOG.info("Sending request to OpenAI with prompt length: ${prompt.length}")
+            LOG.info("Full request body being sent to OpenAI:")
+            LOG.info(requestBody)
             val request = HttpRequest.newBuilder()
                 .uri(URI.create(API_URL))
                 .header("Content-Type", "application/json")
@@ -115,6 +118,7 @@ class OpenAIService {
                 
                 val content = message.getString("content")
                 LOG.info("Raw content from JSON: '$content'")
+                LOG.debug("Raw content bytes: ${content.toByteArray().joinToString(", ") { "0x%02X".format(it) }}")
                 
                 if (content.isNotBlank()) {
                     val processedContent = content
@@ -122,6 +126,9 @@ class OpenAIService {
                         .replace("\\\"", "\"")
                         .replace("\\\\", "\\")
                     LOG.info("Processed content: '$processedContent'")
+                    LOG.debug("Processed content bytes: ${processedContent.toByteArray().joinToString(", ") { "0x%02X".format(it) }}")
+                    LOG.debug("Contains newlines: ${processedContent.contains("\n")}")
+                    LOG.debug("Contains \\n: ${processedContent.contains("\\n")}")
                     return processedContent
                 } else {
                     LOG.warn("Content is blank")

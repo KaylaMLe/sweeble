@@ -128,11 +128,25 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
                                     val text = document.text
                                     val offset = value.caretModel.offset
                                     LOG.debug("Editor text length: ${text.length}, cursor offset: $offset")
-                                    val start = maxOf(0, offset - 200)
-                                    val context = text.substring(start, offset)
-                                    LOG.debug("Extracted context length: ${context.length}")
+                                    
+                                    // Get context before cursor (500 chars)
+                                    val beforeStart = maxOf(0, offset - 500)
+                                    val beforeContext = text.substring(beforeStart, offset)
+                                    
+                                    // Get context after cursor (500 chars - increased to match before)
+                                    val afterEnd = minOf(text.length, offset + 500)
+                                    val afterContext = text.substring(offset, afterEnd)
+                                    
+                                    LOG.debug("Before context length: ${beforeContext.length}, After context length: ${afterContext.length}")
+                                    LOG.debug("Before context: '$beforeContext'")
+                                    LOG.debug("After context: '$afterContext'")
+                                    
                                     val language = detectLanguage(value)
-                                    Pair("$context[CURSOR_HERE]", language)
+                                    
+                                    // Create context with before, cursor position, and after
+                                    val fullContext = "$beforeContext[CURSOR_HERE]$afterContext"
+                                    LOG.info("Full context sent to AI: '$fullContext'")
+                                    Pair(fullContext, language)
                                 }
                             }
                             if (value is String) {
@@ -156,6 +170,7 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
         LOG.debug("SweebleInlineCompletionProvider: getSuggestion called")
         val (context, language) = extractContext(request)
         LOG.debug("Extracted context: '$context' with language: '$language'")
+        
         if (context.isBlank() || context == "Complete this code: [CURSOR_HERE]") {
             LOG.debug("No meaningful context, returning empty suggestion")
             return createEmptySuggestion()
