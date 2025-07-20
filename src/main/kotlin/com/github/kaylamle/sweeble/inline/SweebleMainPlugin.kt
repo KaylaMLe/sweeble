@@ -21,6 +21,7 @@ import com.github.kaylamle.sweeble.services.NextEditSuggestionService
 import com.github.kaylamle.sweeble.services.CodeAnalysisService
 import com.github.kaylamle.sweeble.services.SuggestionType
 import com.github.kaylamle.sweeble.services.ChangeType
+import com.github.kaylamle.sweeble.services.SuggestionClassification
 import com.github.kaylamle.sweeble.services.CodeChangeApplicationService
 import com.github.kaylamle.sweeble.highlighting.ChangeHighlighter
 import com.github.kaylamle.sweeble.actions.ApplyComplexEditAction
@@ -40,9 +41,9 @@ import java.awt.Color
 import java.util.concurrent.atomic.AtomicLong
 import java.security.MessageDigest
 
-class SweebleInlineCompletionProvider : InlineCompletionProvider {
+class SweebleMainPlugin : InlineCompletionProvider {
     companion object {
-        private val LOG = Logger.getInstance(SweebleInlineCompletionProvider::class.java)
+        private val LOG = Logger.getInstance(SweebleMainPlugin::class.java)
         private const val DEBOUNCE_DELAY_MS = 300L // Wait 300ms before processing a request
     }
 
@@ -276,72 +277,76 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
                     return@launch
                 }
                 
-                // Analyze the code and get next edit suggestions
-                LOG.debug("Analyzing code and getting next edit suggestions for request $requestId...")
-                val nextEditSuggestions = nextEditSuggestionService.getNextEditSuggestions(editor, context, language)
-                
                 // Check if this request is still current
                 if (currentRequestJob == this) {
-                    if (nextEditSuggestions.isNotEmpty()) {
-                        // Use the highest confidence suggestion
-                        val bestSuggestion = nextEditSuggestions.first()
-                        LOG.info("Best next edit suggestion for request $requestId: ${bestSuggestion.type}")
-                        
-                        // Ensure only one suggestion type is shown at a time
-                        when (bestSuggestion.type) {
-                            SuggestionType.SIMPLE_INSERTION -> {
-                                // For simple insertions, show inline completion only (no highlighting)
-                                val insertionText = bestSuggestion.changes.firstOrNull()?.newText ?: ""
-                                if (insertionText.isNotEmpty()) {
-                                    val element = InlineCompletionTextElement(insertionText) { editor ->
-                                        TextAttributes().apply {
-                                            backgroundColor = java.awt.Color(173, 216, 230, 128) // 50% opacity light blue
-                                        }
+                    // Use mini model to classify the change type
+                    LOG.debug("Classifying change type for request $requestId...")
+                    val changeType = openAIService.classifyChangeType(context, language)
+                    
+                    when (changeType) {
+                        SuggestionClassification.SIMPLE_INSERTION -> {
+                            // Use simple completion (the original, well-tested logic)
+                            LOG.debug("Classification: SIMPLE_INSERTION, trying simple completion for request $requestId...")
+                            val simpleCompletion = openAIService.getCompletion(context, language)
+                            
+                            if (simpleCompletion != null && simpleCompletion.isNotBlank()) {
+                                LOG.info("Simple completion successful for request $requestId: '$simpleCompletion'")
+                                val element = InlineCompletionTextElement(simpleCompletion) { editor ->
+                                    TextAttributes().apply {
+                                        backgroundColor = java.awt.Color(173, 216, 230, 128) // 50% opacity light blue
                                     }
-                                    suggestionElements.value = element
-                                    lastProcessedContextHash = contextHash
-                                    LOG.info("Showing simple insertion suggestion: '$insertionText'")
                                 }
-                            }
-                            SuggestionType.COMPLEX_EDIT, SuggestionType.MULTIPLE_CHANGES -> {
-                                // For complex edits, show red highlighting AND green inlay hints ONLY
-                                if (bestSuggestion.changes.isNotEmpty()) {
-                                    val changeCount = bestSuggestion.changes.size
-                                    
-                                    // Highlight the lines to be replaced in soft red AND show green inlays
-                                    changeHighlighter.highlightChanges(editor, bestSuggestion.changes)
-                                    
-                                    // Store the changes for later application and setup the action
-                                    currentComplexEditChanges = bestSuggestion.changes
-                                    currentEditor = editor
-                                    ApplyComplexEditAction.setCurrentChanges(bestSuggestion.changes, changeHighlighter, editor)
-                                    
-                                    LOG.info("Showing complex edit with red highlighting and green inlays")
-                                    LOG.debug("Full changes: ${bestSuggestion.changes}")
-                                    
-                                    // CRITICAL: Don't set suggestionElements.value for complex edits - use inlay hints instead
-                                    // This ensures simple inline suggestions never show with complex edits
-                                    lastProcessedContextHash = contextHash
-                                }
+                                suggestionElements.value = element
+                                lastProcessedContextHash = contextHash
+                            } else {
+                                LOG.debug("Simple completion returned null/empty for request $requestId")
                             }
                         }
-                    } else {
-                        // Fallback to original completion logic (simple inline completion only)
-                        LOG.debug("No next edit suggestions, falling back to original completion logic for request $requestId...")
-                        val completion = openAIService.getCompletion(context, language)
-                        LOG.info("AI completion for request $requestId: '$completion'")
-                        
-                        if (completion != null && completion.isNotBlank()) {
-                            LOG.info("Creating AI suggestion with completion for request $requestId: '$completion'")
-                            val element = InlineCompletionTextElement(completion) { editor ->
-                                TextAttributes().apply {
-                                    backgroundColor = java.awt.Color(173, 216, 230, 128) // 50% opacity light blue
+                        SuggestionClassification.COMPLEX_EDIT -> {
+                            // Use complex edit suggestions
+                            LOG.debug("Classification: COMPLEX_EDIT, trying complex edit suggestions for request $requestId...")
+                            val nextEditSuggestions = nextEditSuggestionService.getNextEditSuggestions(editor, context, language)
+                            
+                            if (nextEditSuggestions.isNotEmpty()) {
+                                // Use the highest confidence suggestion
+                                val bestSuggestion = nextEditSuggestions.first()
+                                LOG.info("Best next edit suggestion for request $requestId: ${bestSuggestion.type}")
+                                
+                                when (bestSuggestion.type) {
+                                    SuggestionType.COMPLEX_EDIT, SuggestionType.MULTIPLE_CHANGES -> {
+                                        // For complex edits, show red highlighting AND green inlay hints ONLY
+                                        if (bestSuggestion.changes.isNotEmpty()) {
+                                            val changeCount = bestSuggestion.changes.size
+                                            
+                                            // Highlight the lines to be replaced in soft red AND show green inlays
+                                            changeHighlighter.highlightChanges(editor, bestSuggestion.changes)
+                                            
+                                            // Store the changes for later application and setup the action
+                                            currentComplexEditChanges = bestSuggestion.changes
+                                            currentEditor = editor
+                                            ApplyComplexEditAction.setCurrentChanges(bestSuggestion.changes, changeHighlighter, editor)
+                                            
+                                            LOG.info("Showing complex edit with red highlighting and green inlays")
+                                            LOG.debug("Full changes: ${bestSuggestion.changes}")
+                                            
+                                            // CRITICAL: Don't set suggestionElements.value for complex edits - use inlay hints instead
+                                            // This ensures simple inline suggestions never show with complex edits
+                                            lastProcessedContextHash = contextHash
+                                        }
+                                    }
+                                    SuggestionType.SIMPLE_INSERTION -> {
+                                        // This shouldn't happen since we classified as COMPLEX_EDIT
+                                        LOG.debug("Unexpected SIMPLE_INSERTION from NextEditSuggestionService")
+                                    }
                                 }
+                            } else {
+                                LOG.debug("No complex edit suggestions available for request $requestId")
                             }
-                            suggestionElements.value = element
+                        }
+                        SuggestionClassification.NO_SUGGESTION -> {
+                            // No suggestion needed
+                            LOG.debug("Classification: NO_SUGGESTION, no suggestion needed for request $requestId")
                             lastProcessedContextHash = contextHash
-                        } else {
-                            LOG.debug("No valid AI completion received for request $requestId")
                         }
                     }
                 } else {

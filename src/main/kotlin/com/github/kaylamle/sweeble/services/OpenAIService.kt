@@ -1,6 +1,7 @@
 package com.github.kaylamle.sweeble.services
 
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Editor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
@@ -15,11 +16,19 @@ import java.net.http.HttpResponse
 import java.net.URI
 import java.time.Duration
 
+enum class SuggestionClassification {
+    SIMPLE_INSERTION,
+    COMPLEX_EDIT,
+    NO_SUGGESTION
+}
+
 class OpenAIService {
     companion object {
         private val LOG = Logger.getInstance(OpenAIService::class.java)
         private const val API_URL = "https://api.openai.com/v1/chat/completions"
         private const val MODEL = "gpt-4o"
+        private const val MINI_MODEL = "gpt-4o-mini"
+        private val httpClient = HttpClient.newHttpClient()
     }
 
     private val httpClient = HttpClient.newBuilder()
@@ -205,7 +214,7 @@ class OpenAIService {
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are an expert $language programmer. Analyze the code and identify COMPLETE LINES that need to be changed, deleted, or where new lines should be inserted.\n\nYou must return a JSON object with this exact structure:\n{\n  \"suggestions\": [\n    {\n      \"changes\": [\n        {\n          \"type\": \"INSERT|REPLACE|DELETE\",\n          \"startOffset\": 123,\n          \"endOffset\": 456,\n          \"newText\": \"text to insert/replace\"\n        }\n      ],\n      \"confidence\": 0.85\n    }\n  ]\n}\n\nCRITICAL WHOLE-LINE REQUIREMENTS:\n- You MUST identify COMPLETE LINES that contain problems\n- You MUST replace ENTIRE LINES, never partial text within lines\n- You MUST calculate offsets to cover COMPLETE LINES from start to end\n- You MUST include the newline character in your offset calculations\n\nSTEP-BY-STEP PROCESS:\n1. Find the line number containing the problem\n2. Calculate the start offset of that line (beginning of line)\n3. Calculate the end offset of that line (end of line including newline)\n4. Replace the ENTIRE line with the corrected version\n\nGuidelines:\n- ALWAYS WORK WITH COMPLETE LINES: Never suggest partial line changes\n- For REPLACE: Replace the entire problematic line with a complete correct line\n- For INSERT: Insert complete new lines (not partial text)\n- For DELETE: Remove entire lines that are wrong\n- Calculate offsets to cover complete lines (from start of line to end of line including newline)\n- Focus on the current logical unit (function, class, etc.)\n- The [CURSOR_HERE] marker shows where the user is typing\n- Confidence should be between 0.0 and 1.0\n\nEXAMPLES:\n- If line 5 has 'public HelloWorld(String foo, int bar) {' but field 'bar' is String type:\n  Find line 5 start offset (e.g., 60), find line 5 end offset (e.g., 95), REPLACE entire range with 'public HelloWorld(String foo, String bar) {\\n'\n- If line 11 has 'return foo + bar;' but method returns int:\n  Find line 11 start offset (e.g., 150), find line 11 end offset (e.g., 175), REPLACE entire range with 'return Integer.parseInt(foo) + Integer.parseInt(bar);\\n'\n\nCRITICAL: Always identify and work with complete lines, never partial text within lines. Calculate offsets for entire lines."
+                            "content": "You are an expert $language programmer. Analyze the code and identify WHOLE LINE changes needed to fix the specific problem.\n\nYou must return a JSON object with this exact structure:\n{\n  \"suggestions\": [\n    {\n      \"changes\": [\n        {\n          \"type\": \"INSERT|REPLACE|DELETE\",\n          \"startOffset\": 123,\n          \"endOffset\": 456,\n          \"newText\": \"text to insert/replace\"\n        }\n      ],\n      \"confidence\": 0.85\n    }\n  ]\n}\n\nCRITICAL WHOLE LINE REQUIREMENTS:\n- You MUST work with COMPLETE LINES only\n- Calculate offsets to cover ENTIRE LINES from start to end\n- Replace/insert/delete ENTIRE LINES, never partial text\n- Include newline characters in your offset calculations\n\nSTEP-BY-STEP PROCESS:\n1. Identify the exact problem (typo, missing character, wrong method name, etc.)\n2. Find the line number containing the problem\n3. Calculate the start offset of that line (beginning of line)\n4. Calculate the end offset of that line (end of line including newline)\n5. Replace the ENTIRE line with the corrected version\n\nGuidelines:\n- WHOLE LINES ONLY: Always replace/insert/delete complete lines\n- For typos: Replace the entire line containing the typo (e.g., 'retrn \"HelloWorld{\" +' → 'return \"HelloWorld{\" +')\n- For missing elements: Insert complete new lines\n- For wrong method calls: Replace the entire line with the correct method call\n- Calculate offsets for complete lines (from start of line to end of line including newline)\n- The [CURSOR_HERE] marker shows where the user is typing\n- Confidence should be between 0.0 and 1.0\n\nEXAMPLES:\n- Typo 'retrn' on line 12: Find line 12 start offset (e.g., 150), find line 12 end offset (e.g., 175), REPLACE entire range with 'return \"HelloWorld{\" +\\n'\n- Missing semicolon: Find the line end offset, INSERT at that position with ';\\n'\n\nCRITICAL: Always work with complete lines. Calculate offsets for entire lines from start to end including newlines."
                         },
                         {
                             "role": "user",
@@ -303,12 +312,14 @@ class OpenAIService {
                     
                     for (j in 0 until changesArray.length()) {
                         val changeObj = changesArray.getJSONObject(j)
-                        changes.add(CodeChange(
+                        val change = CodeChange(
                             type = ChangeType.valueOf(changeObj.getString("type")),
                             startOffset = changeObj.getInt("startOffset"),
                             endOffset = changeObj.getInt("endOffset"),
                             newText = changeObj.getString("newText")
-                        ))
+                        )
+                        LOG.info("Parsed change $j: ${change.type} at ${change.startOffset}-${change.endOffset}: '${change.newText}'")
+                        changes.add(change)
                     }
                     
                     suggestions.add(ComplexEditSuggestion(
@@ -336,6 +347,103 @@ class OpenAIService {
         } catch (e: Exception) {
             LOG.warn("Error parsing complex edit suggestions: ${e.message}")
             emptyList()
+        }
+    }
+
+    suspend fun classifyChangeType(context: String, language: String): SuggestionClassification {
+        return try {
+            LOG.info("OpenAIService: Starting change type classification")
+            val apiKey = getApiKey()
+
+            if (apiKey.isNullOrBlank()) {
+                LOG.error("OpenAI API key not found for change type classification")
+                return SuggestionClassification.NO_SUGGESTION // Default to no suggestion
+            }
+
+            val escapedContext = context
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            
+            val requestBody = """
+                {
+                    "model": "$MINI_MODEL",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a code analysis expert. Analyze the given code and determine what type of change is needed at the [CURSOR_HERE] marker.\n\nRespond with exactly one of these three options:\n- SIMPLE_INSERTION: Can be completed by adding text at the cursor position (e.g., completing a method body, adding a semicolon, continuing a statement)\n- COMPLEX_EDIT: Requires modifying existing code, fixing syntax errors, or making structural changes (e.g., correcting method signatures, fixing type mismatches)\n- NO_SUGGESTION: Nothing needs to be added or changed at the cursor position, or it's impossible to make a valid suggestion\n\nExamples:\n- 'public void test[CURSOR_HERE]' -> SIMPLE_INSERTION (completing method name)\n- 'public void test() { [CURSOR_HERE] }' -> SIMPLE_INSERTION (completing method body)\n- 'public HelloWo[CURSOR_HERE]rld(String foo, String bar) {' -> NO_SUGGESTION (class name already complete)\n- 'int x = String.parseInt[CURSOR_HERE]' -> COMPLEX_EDIT (fixing incorrect method name)\n- 'public int addFo[CURSOR_HERE](int foo, int bar)' -> COMPLEX_EDIT (fixing method signature syntax)\n- 'public void test() { return; [CURSOR_HERE] }' -> NO_SUGGESTION (method already complete)\n\nRespond with only the classification, no explanation."
+                        },
+                        {
+                            "role": "user",
+                            "content": "$escapedContext"
+                        }
+                    ],
+                    "max_tokens": 10,
+                    "temperature": 0.0
+                }
+            """.trimIndent()
+            
+            val request = HttpRequest.newBuilder()
+                .uri(URI.create(API_URL))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer $apiKey")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build()
+            
+            val response = withTimeout(3000) { // Shorter timeout for classification
+                withContext(Dispatchers.IO) {
+                    httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+                }
+            }
+            
+            if (response.statusCode() == 200) {
+                val responseBody = response.body()
+                LOG.debug("Classification response: $responseBody")
+                
+                val classification = parseClassificationResponse(responseBody)
+                LOG.info("Change type classification: $classification")
+                classification
+            } else {
+                LOG.error("OpenAI API error for classification: ${response.statusCode()} - ${response.body()}")
+                SuggestionClassification.NO_SUGGESTION // Default to no suggestion on error
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            LOG.debug("Change type classification was cancelled")
+            SuggestionClassification.NO_SUGGESTION
+        } catch (e: Exception) {
+            LOG.warn("Error classifying change type", e)
+            SuggestionClassification.NO_SUGGESTION // Default to no suggestion on error
+        }
+    }
+    
+    private fun parseClassificationResponse(responseBody: String): SuggestionClassification {
+        return try {
+            val json = JSONObject(responseBody)
+            val choices = json.getJSONArray("choices")
+            
+            if (choices.length() > 0) {
+                val firstChoice = choices.getJSONObject(0)
+                val message = firstChoice.getJSONObject("message")
+                val content = message.getString("content").trim()
+                
+                when (content.uppercase()) {
+                    "SIMPLE_INSERTION" -> SuggestionClassification.SIMPLE_INSERTION
+                    "COMPLEX_EDIT" -> SuggestionClassification.COMPLEX_EDIT
+                    "NO_SUGGESTION" -> SuggestionClassification.NO_SUGGESTION
+                    else -> {
+                        LOG.warn("Unknown classification: '$content', defaulting to NO_SUGGESTION")
+                        SuggestionClassification.NO_SUGGESTION
+                    }
+                }
+            } else {
+                LOG.warn("No choices in classification response, defaulting to NO_SUGGESTION")
+                SuggestionClassification.NO_SUGGESTION
+            }
+        } catch (e: Exception) {
+            LOG.warn("Error parsing classification response: ${e.message}")
+            SuggestionClassification.NO_SUGGESTION
         }
     }
 }

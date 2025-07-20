@@ -31,7 +31,7 @@ class NextEditSuggestionService {
         return withContext(Dispatchers.IO) {
             try {
                 val analysis = codeAnalysisService.analyzeCodeAtCursor(editor)
-                LOG.info("Code analysis result: canCompleteWithInsertion=${analysis.canCompleteWithInsertion}, needsComplexEdit=${analysis.needsComplexEdit}")
+                LOG.debug("Code analysis for context enhancement only - classification already done by mini model")
 
                 val suggestions = mutableListOf<NextEditSuggestion>()
 
@@ -40,29 +40,9 @@ class NextEditSuggestionService {
                     editor.caretModel.offset
                 }
 
-                // If we can complete with simple insertion, use the existing OpenAI service
-                if (analysis.canCompleteWithInsertion) {
-                    val insertionSuggestion = getSimpleInsertionSuggestion(context, language)
-                    if (insertionSuggestion != null) {
-                        suggestions.add(NextEditSuggestion(
-                            type = SuggestionType.SIMPLE_INSERTION,
-                            changes = listOf(CodeChange(
-                                type = ChangeType.INSERT,
-                                startOffset = cursorOffset,
-                                endOffset = cursorOffset,
-                                newText = insertionSuggestion
-                            )),
-                            confidence = 0.9,
-                            preview = insertionSuggestion
-                        ))
-                    }
-                }
-
-                // If we need complex edits, generate AI-powered suggestions
-                if (analysis.needsComplexEdit) {
-                    val complexSuggestions = getComplexEditSuggestions(editor, context, language, analysis)
-                    suggestions.addAll(complexSuggestions)
-                }
+                // Generate complex edit suggestions (mini model already determined this is needed)
+                val complexSuggestions = getComplexEditSuggestions(editor, context, language, analysis)
+                suggestions.addAll(complexSuggestions)
 
                 // Add rule-based suggestions from code analysis
                 val ruleBasedSuggestions = analysis.editSuggestions.map { editSuggestion ->
@@ -83,18 +63,7 @@ class NextEditSuggestionService {
         }
     }
 
-    private suspend fun getSimpleInsertionSuggestion(context: String, language: String): String? {
-        return try {
-            openAIService.getCompletion(context, language, maxTokens = 50, temperature = 0.2)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            // This is normal behavior when the user types quickly and cancels the previous request
-            LOG.debug("Simple insertion suggestion was cancelled (normal behavior)")
-            null
-        } catch (e: Exception) {
-            LOG.warn("Error getting simple insertion suggestion", e)
-            null
-        }
-    }
+
 
     private suspend fun getComplexEditSuggestions(
         editor: Editor, 

@@ -19,6 +19,12 @@ class ChangeHighlighter {
     fun highlightChanges(editor: Editor, changes: List<CodeChange>) {
         cleanup() // Clear previous highlighters and inlays
         
+        // Debug: Log all changes being highlighted
+        com.intellij.openapi.diagnostic.Logger.getInstance(ChangeHighlighter::class.java).info("Highlighting ${changes.size} changes:")
+        changes.forEachIndexed { index, change ->
+            com.intellij.openapi.diagnostic.Logger.getInstance(ChangeHighlighter::class.java).info("Highlight change $index: ${change.type} at ${change.startOffset}-${change.endOffset}: '${change.newText}'")
+        }
+        
         val markupModel = editor.markupModel
         val document = editor.document
         
@@ -66,20 +72,32 @@ class ChangeHighlighter {
                     object : com.intellij.openapi.editor.EditorCustomElementRenderer {
                         override fun paint(inlay: Inlay<*>, g: java.awt.Graphics, targetRegion: java.awt.Rectangle, textAttributes: TextAttributes) {
                             val fontMetrics = g.fontMetrics
-                            val text = change.newText.trim()
+                            val text = change.newText.trim().replace("\\n", "\n")
                             
-                            // Draw green background
+                            // Split text into lines
+                            val lines = text.split("\n")
+                            val lineHeight = fontMetrics.height
+                            val totalHeight = lines.size * lineHeight
+                            
+                            // Draw green background for the entire multi-line block
                             g.color = java.awt.Color(0, 255, 0, 50) // Plain green with low opacity
-                            g.fillRect(targetRegion.x, targetRegion.y, targetRegion.width, targetRegion.height)
+                            g.fillRect(targetRegion.x, targetRegion.y, targetRegion.width, totalHeight)
                             
-                            // Draw text
-                            g.color = java.awt.Color.WHITE
-                            g.drawString(text, targetRegion.x + 2, targetRegion.y + fontMetrics.ascent)
+                            // Draw text with proper newline handling
+                            var y = targetRegion.y + fontMetrics.ascent
+                            
+                            lines.forEach { line ->
+                                g.color = java.awt.Color.WHITE
+                                g.drawString(line, targetRegion.x + 2, y)
+                                y += lineHeight
+                            }
                         }
                         
                         override fun calcWidthInPixels(inlay: Inlay<*>): Int {
-                            val text = change.newText.trim()
-                            return text.length * 8 + 4 // Approximate width
+                            val text = change.newText.trim().replace("\\n", "\n")
+                            val lines = text.split("\n")
+                            val maxLineLength = lines.maxOfOrNull { it.length } ?: 0
+                            return maxLineLength * 8 + 4 // Approximate width based on longest line
                         }
                     }
                 )
@@ -99,20 +117,32 @@ class ChangeHighlighter {
                     object : com.intellij.openapi.editor.EditorCustomElementRenderer {
                         override fun paint(inlay: Inlay<*>, g: java.awt.Graphics, targetRegion: java.awt.Rectangle, textAttributes: TextAttributes) {
                             val fontMetrics = g.fontMetrics
-                            val text = change.newText.trim()
+                            val text = change.newText.trim().replace("\\n", "\n")
                             
-                            // Draw green background
+                            // Split text into lines
+                            val lines = text.split("\n")
+                            val lineHeight = fontMetrics.height
+                            val totalHeight = lines.size * lineHeight
+                            
+                            // Draw green background for the entire multi-line block
                             g.color = java.awt.Color(0, 255, 0, 50) // Plain green with low opacity
-                            g.fillRect(targetRegion.x, targetRegion.y, targetRegion.width, targetRegion.height)
+                            g.fillRect(targetRegion.x, targetRegion.y, targetRegion.width, totalHeight)
                             
-                            // Draw text
-                            g.color = java.awt.Color.WHITE
-                            g.drawString(text, targetRegion.x + 2, targetRegion.y + fontMetrics.ascent)
+                            // Draw text with proper newline handling
+                            var y = targetRegion.y + fontMetrics.ascent
+                            
+                            lines.forEach { line ->
+                                g.color = java.awt.Color.WHITE
+                                g.drawString(line, targetRegion.x + 2, y)
+                                y += lineHeight
+                            }
                         }
                         
                         override fun calcWidthInPixels(inlay: Inlay<*>): Int {
-                            val text = change.newText.trim()
-                            return text.length * 8 + 4 // Approximate width
+                            val text = change.newText.trim().replace("\\n", "\n")
+                            val lines = text.split("\n")
+                            val maxLineLength = lines.maxOfOrNull { it.length } ?: 0
+                            return maxLineLength * 8 + 4 // Approximate width based on longest line
                         }
                     }
                 )
