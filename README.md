@@ -1,85 +1,180 @@
-# sweeble
+# Sweeble
 
-![Build](https://github.com/KaylaMLe/sweeble/workflows/Build/badge.svg)
-[![Version](https://img.shields.io/jetbrains/plugin/v/MARKETPLACE_ID.svg)](https://plugins.jetbrains.com/plugin/MARKETPLACE_ID)
-[![Downloads](https://img.shields.io/jetbrains/plugin/d/MARKETPLACE_ID.svg)](https://plugins.jetbrains.com/plugin/MARKETPLACE_ID)
-
-## Template ToDo list
-
-- [x] Create a new [IntelliJ Platform Plugin Template][template] project.
-- [ ] Get familiar with the [template documentation][template].
-- [ ] Adjust the [pluginGroup](./gradle.properties) and [pluginName](./gradle.properties), as well as the [id](./src/main/resources/META-INF/plugin.xml) and [sources package](./src/main/kotlin).
-- [ ] Adjust the plugin description in `README` (see [Tips][docs:plugin-description])
-- [ ] Review the [Legal Agreements](https://plugins.jetbrains.com/docs/marketplace/legal-agreements.html?from=IJPluginTemplate).
-- [ ] [Publish a plugin manually](https://plugins.jetbrains.com/docs/intellij/publishing-plugin.html?from=IJPluginTemplate) for the first time.
-- [ ] Set the `MARKETPLACE_ID` in the above README badges. You can obtain it once the plugin is published to JetBrains Marketplace.
-- [ ] Set the [Plugin Signing](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html?from=IJPluginTemplate) related [secrets](https://github.com/JetBrains/intellij-platform-plugin-template#environment-variables).
-- [ ] Set the [Deployment Token](https://plugins.jetbrains.com/docs/marketplace/plugin-upload.html?from=IJPluginTemplate).
-- [ ] Click the <kbd>Watch</kbd> button on the top of the [IntelliJ Platform Plugin Template][template] to be notified about releases containing new features and fixes.
+[![Build](https://github.com/KaylaMLe/sweeble/workflows/Build/badge.svg)](https://github.com/KaylaMLe/sweeble/actions)
 
 <!-- Plugin description -->
 
-Sweeble is an AI-powered inline completion plugin for IntelliJ IDEA that provides ghost text suggestions as you type. It uses OpenAI's API to generate contextual code completions that appear as gray inline text, similar to GitHub Copilot.
+Sweeble is an AI-powered inline completion plugin for IntelliJ IDEA that provides intelligent code suggestions as you type. It uses OpenAI's GPT-4o model to generate contextual code completions that appear as ghost text, similar to GitHub Copilot.
 
 **Features:**
 
-- AI-powered inline completions (ghost text)
-- Support for Java, Kotlin, Python, and other languages
-- Configurable OpenAI API integration
-- Git-aware (skips ignored files)
+- 🤖 **AI-Powered Completions**: Uses OpenAI's GPT-4o model for intelligent code suggestions
+- 🎯 **Context-Aware**: Analyzes 500 characters before and after cursor for better completions
+- 🌍 **Multi-Language Support**: Works with Java, Kotlin, Python, JavaScript, TypeScript, C++, C#, PHP, Ruby, Go, Rust, Swift, Scala, SQL, HTML, CSS, XML, JSON, YAML, Markdown, and more
+- ⚙️ **Flexible Configuration**: API key can be set in plugin settings or system environment
+- 🚀 **Real-time Suggestions**: Provides instant inline completions as you type
+- 🎨 **Visual Feedback**: Clear indication when API key needs to be configured
 
 **Requirements:**
 
-- IntelliJ IDEA 2023.3 or later
+- IntelliJ IDEA 2024.2 or later (build 242+)
 - OpenAI API key
 
 <!-- Plugin description end -->
 
-## Installation
+## 🚀 Installation
 
-- Using the IDE built-in plugin system:
+### For End Users
 
-  <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>Marketplace</kbd> > <kbd>Search for "sweeble"</kbd> >
-  <kbd>Install</kbd>
+1. Open IntelliJ IDEA
+2. Go to <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>Marketplace</kbd>
+3. Search for "Sweeble"
+4. Click <kbd>Install</kbd>
 
-- Using JetBrains Marketplace:
+### For Developers
 
-  Go to [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/MARKETPLACE_ID) and install it by clicking the <kbd>Install to ...</kbd> button in case your IDE is running.
+#### Prerequisites
 
-  You can also download the [latest release](https://plugins.jetbrains.com/plugin/MARKETPLACE_ID/versions) from JetBrains Marketplace and install it manually using
-  <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>⚙️</kbd> > <kbd>Install plugin from disk...</kbd>
+- Java 21 or later
+- Gradle 8.13 or later
+- IntelliJ IDEA 2024.2+ for development
 
-- Manually:
+#### Setup Development Environment
 
-  Download the [latest release](https://github.com/KaylaMLe/sweeble/releases/latest) and install it manually using
-  <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>⚙️</kbd> > <kbd>Install plugin from disk...</kbd>
+```bash
+# Clone the repository
+git clone https://github.com/KaylaMLe/sweeble.git
+cd sweeble
 
-## Configuration
+# Build the plugin
+./gradlew buildPlugin
+
+# Run in development mode
+./gradlew runIde
+```
+
+## ⚙️ Configuration
+
+### Setting Up OpenAI API Key
+
+#### Option 1: Plugin Settings (Recommended)
 
 1. Go to <kbd>Settings/Preferences</kbd> > <kbd>Tools</kbd> > <kbd>Sweeble AI Assistant</kbd>
 2. Enter your OpenAI API key
-3. Enable inline completions
-4. Restart your IDE if needed
+3. Click <kbd>Apply</kbd> and <kbd>OK</kbd>
 
-## Development
+#### Option 2: System Environment Variable
 
-This plugin uses the IntelliJ Platform's inline completion API (available since 2023.3) to provide ghost text suggestions. The plugin is built with Kotlin and uses Gradle for build management.
+Set the `OPENAI_API_KEY` environment variable:
+
+```bash
+# Linux/macOS
+export OPENAI_API_KEY="your-api-key-here"
+
+# Windows (PowerShell)
+$env:OPENAI_API_KEY="your-api-key-here"
+
+# Windows (Command Prompt)
+set OPENAI_API_KEY=your-api-key-here
+```
+
+### Getting an OpenAI API Key
+
+1. Visit [OpenAI Platform](https://platform.openai.com/api-keys)
+2. Sign in or create an account
+3. Click "Create new secret key"
+4. Copy the generated key and use it in the plugin settings
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+sweeble/
+├── src/main/kotlin/com/github/kaylamle/sweeble/
+│   ├── inline/
+│   │   └── SweebleInlineCompletionProvider.kt    # Main completion logic
+│   └── services/
+│       ├── OpenAIService.kt                      # OpenAI API integration
+│       ├── SweebleSettingsState.kt               # Settings persistence
+│       └── SweebleSettingsConfigurable.kt        # Settings UI
+├── src/main/resources/META-INF/
+│   └── plugin.xml                                # Plugin configuration
+└── src/test/                                     # Unit tests
+```
 
 ### Building
 
 ```bash
+# Build the plugin
 ./gradlew buildPlugin
+
+# Build with tests
+./gradlew build
+
+# Run tests only
+./gradlew test
 ```
 
 ### Running in Development
 
 ```bash
+# Run with a fresh IDE instance
 ./gradlew runIde
+
+# Run with UI tests support
+./gradlew runIdeForUiTests
 ```
 
----
+### Key Components
 
-Plugin based on the [IntelliJ Platform Plugin Template][template].
+#### SweebleInlineCompletionProvider
 
-[template]: https://github.com/JetBrains/intellij-platform-plugin-template
-[docs:plugin-description]: https://plugins.jetbrains.com/docs/intellij/plugin-user-experience.html#plugin-description-and-presentation
+- Implements the IntelliJ Platform's inline completion API
+- Extracts context (500 chars before/after cursor)
+- Detects programming language automatically
+- Handles API key validation and error states
+
+#### OpenAIService
+
+- Manages OpenAI API communication
+- Implements API key resolution (settings → environment)
+- Handles request/response parsing
+- Provides error handling and logging
+
+#### Settings Management
+
+- `SweebleSettingsState`: Persistent storage for API key
+- `SweebleSettingsConfigurable`: Settings UI in IDE preferences
+- Automatic fallback to environment variables
+
+### Testing
+
+```bash
+# Run all tests
+./gradlew test
+
+# Run specific test
+./gradlew test --tests SweebleSettingsStateTest
+
+# Run with coverage
+./gradlew koverReport
+```
+
+## 🔧 Troubleshooting
+
+### No Completions Appearing
+
+1. **Check API Key**: Ensure your OpenAI API key is configured in Settings > Tools > Sweeble AI Assistant
+2. **Check File Type**: Make sure you're editing a supported file type
+3. **Check Logs**: Look for errors in the IDE's Event Log or Help > Show Log
+
+### Orange Configuration Message
+
+If you see an orange suggestion saying "Configure OpenAI API key...", it means no API key is found. Follow the configuration steps above.
+
+### API Errors
+
+- **401 Unauthorized**: Check your API key is correct
+- **429 Rate Limited**: You've exceeded your OpenAI API rate limits
+- **Network Issues**: Check your internet connection
