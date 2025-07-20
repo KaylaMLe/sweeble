@@ -15,6 +15,7 @@ class NextEditSuggestionService {
 
     private val codeAnalysisService = CodeAnalysisService()
     private val openAIService = OpenAIService()
+    private val offsetCalculationService = OffsetCalculationService()
 
     suspend fun getNextEditSuggestions(editor: Editor, context: String, language: String): List<CodeChange> {
         return withContext(Dispatchers.IO) {
@@ -45,7 +46,15 @@ class NextEditSuggestionService {
         analysis: CodeAnalysisResult
     ): List<CodeChange> {
         return try {
-            openAIService.getComplexEditSuggestions(context, language)
+            val rawChanges = openAIService.getComplexEditSuggestions(context, language)
+            
+            // Calculate offsets programmatically for each change
+            rawChanges.map { change ->
+                offsetCalculationService.calculateOffsets(editor, change)
+            }.filter { change ->
+                // Filter out changes where we couldn't find the target text
+                change.startOffset != 0 || change.endOffset != 0 || change.type == ChangeType.INSERT
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // This is normal behavior when the user types quickly and cancels the previous request
             LOG.debug("Complex edit suggestions were cancelled (normal behavior)")

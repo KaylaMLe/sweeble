@@ -29,7 +29,8 @@ data class CodeChange(
     val startOffset: Int,
     val endOffset: Int,
     val newText: String,
-    val confidence: Double = 1.0
+    val confidence: Double = 1.0,
+    val oldText: String = "" // Text to find for REPLACE/DELETE operations
 )
 
 enum class ChangeType {

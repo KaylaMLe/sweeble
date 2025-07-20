@@ -83,6 +83,17 @@ class ChangeHighlighter {
                 
                 return minOf(estimatedWidth, maxAllowedWidth)
             }
+            
+            override fun calcHeightInPixels(inlay: Inlay<*>): Int {
+                val text = change.newText.trim().replace("\\n", "\n")
+                val lines = text.split("\n")
+                
+                // Use editor's line height as reference
+                val lineHeight = editor.lineHeight
+                val totalLines = lines.size
+                
+                return totalLines * lineHeight
+            }
         }
     }
     

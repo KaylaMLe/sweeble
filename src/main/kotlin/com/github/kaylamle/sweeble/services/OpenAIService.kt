@@ -214,7 +214,7 @@ class OpenAIService {
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are an expert $language programmer. Analyze the code and identify WHOLE LINE changes needed to fix the specific problem.\n\nCRITICAL WHOLE LINE REQUIREMENTS:\n- You MUST work with one or more groups of at least one COMPLETE LINE only\n- Calculate offsets to cover ENTIRE LINES from start to end\n- Replace/insert/delete ENTIRE LINES, never partial text\n- Include newline characters in your offset calculations\n\nSTEP-BY-STEP PROCESS:\n1. Identify the exact problem (typo, missing character, wrong method name, etc.)\n2. Find the line number containing the problem\n3. Calculate the start offset of that line (beginning of line)\n4. Calculate the end offset of that line (end of line including newline)\n5. Replace the ENTIRE line with the corrected version\n\nGuidelines:\n- WHOLE LINES ONLY: Always replace/insert/delete complete lines\n- For typos: Replace the entire line containing the typo (e.g., 'retrn \"HelloWorld{\" +' → 'return \"HelloWorld{\" +')\n- For missing elements: Insert complete new lines\n- For wrong method calls: Replace the entire line with the correct method call\n- Calculate offsets for complete lines (from start of line to end of line including newline)\n- The [CURSOR_HERE] marker shows where the user is typing\n- Confidence should be between 0.0 and 1.0\n\nEXAMPLES:\n- Typo 'retrn' on line 12: Find line 12 start offset (e.g., 150), find line 12 end offset (e.g., 175), REPLACE entire range with 'return \"HelloWorld{\" +\\n'\n- Missing semicolon: Find the line end offset, INSERT at that position with ';\\n'\n\nCRITICAL: Always work with complete lines. Calculate offsets for entire lines from start to end including newlines."
+                            "content": "You are an expert $language programmer. Analyze the code and identify changes needed to fix the specific problem.\n\nCRITICAL REQUIREMENTS:\n- Focus on the specific problem area around the [CURSOR_HERE] marker\n- Provide the COMPLETE corrected line(s) that should replace the problematic line(s)\n- Work with complete logical units (statements, lines, or blocks)\n- Include proper indentation and newlines in your corrected text\n\nSTEP-BY-STEP PROCESS:\n1. Identify the exact problem (typo, missing character, wrong method name, etc.)\n2. Determine what the corrected code should look like\n3. Provide the COMPLETE corrected line(s) with proper formatting\n\nGuidelines:\n- For typos: Provide the COMPLETE corrected line (e.g., 'retrn \"HelloWorld{\" +' → 'return \"HelloWorld{\" +\\n                \"foo='\" + foo + '\\\\'' +\\n                \", bar='\" + bar + '\\\\'' +\\n                '}';')\n- For wrong types: Provide the COMPLETE corrected line (e.g., 'public HelloWorld(int foo, String bar)' → 'public HelloWorld(String foo, String bar)')\n- For missing elements: Provide the complete missing code\n- For wrong method calls: Provide the complete corrected method call\n- Include proper indentation and newlines\n- The [CURSOR_HERE] marker shows where the user is typing\n- Confidence should be between 0.0 and 1.0\n\nEXAMPLES:\n- Typo 'retrn' → corrected text: 'return \"HelloWorld{\" +\\n                \"foo='\" + foo + '\\\\'' +\\n                \", bar='\" + bar + '\\\\'' +\\n                '}';'\n- Wrong type 'int' → corrected text: 'public HelloWorld(String foo, String bar) {'\n- Missing semicolon → corrected text: 'String message = \"Hello World\";'\n\nCRITICAL: Provide the COMPLETE corrected line(s), not just the corrected part."
                         },
                         {
                             "role": "user",
@@ -240,17 +240,13 @@ class OpenAIService {
                                                     "enum": ["INSERT", "REPLACE", "DELETE"],
                                                     "description": "The type of change to make"
                                                 },
-                                                "startOffset": {
-                                                    "type": "integer",
-                                                    "description": "Start offset of the change (inclusive)"
-                                                },
-                                                "endOffset": {
-                                                    "type": "integer",
-                                                    "description": "End offset of the change (exclusive)"
+                                                "oldText": {
+                                                    "type": "string",
+                                                    "description": "The problematic text to find and replace (for REPLACE/DELETE) or empty string (for INSERT)"
                                                 },
                                                 "newText": {
                                                     "type": "string",
-                                                    "description": "Text to insert or replace with (empty string for DELETE)"
+                                                    "description": "The corrected text to insert or replace with"
                                                 },
                                                 "confidence": {
                                                     "type": "number",
@@ -259,7 +255,7 @@ class OpenAIService {
                                                     "description": "Confidence level of this change (0.0 to 1.0)"
                                                 }
                                             },
-                                            "required": ["type", "startOffset", "endOffset", "newText", "confidence"]
+                                            "required": ["type", "oldText", "newText", "confidence"]
                                         }
                                     }
                                 },
@@ -332,12 +328,13 @@ class OpenAIService {
                     val changeObj = changesArray.getJSONObject(i)
                     val change = CodeChange(
                         type = ChangeType.valueOf(changeObj.getString("type")),
-                        startOffset = changeObj.getInt("startOffset"),
-                        endOffset = changeObj.getInt("endOffset"),
+                        startOffset = 0, // Will be calculated programmatically
+                        endOffset = 0,   // Will be calculated programmatically
                         newText = changeObj.getString("newText"),
-                        confidence = changeObj.getDouble("confidence")
+                        confidence = changeObj.getDouble("confidence"),
+                        oldText = changeObj.getString("oldText") // Store the text to find
                     )
-                    LOG.info("Parsed change $i: ${change.type} at ${change.startOffset}-${change.endOffset}: '${change.newText}' with confidence ${change.confidence}")
+                    LOG.info("Parsed change $i: ${change.type} with oldText: '${change.oldText}' newText: '${change.newText}' confidence: ${change.confidence}")
                     changes.add(change)
                 }
                 
