@@ -28,7 +28,8 @@ data class CodeChange(
     val type: ChangeType,
     val startOffset: Int,
     val endOffset: Int,
-    val newText: String
+    val newText: String,
+    val confidence: Double = 1.0
 )
 
 enum class ChangeType {

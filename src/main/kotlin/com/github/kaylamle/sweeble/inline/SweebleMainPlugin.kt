@@ -19,7 +19,7 @@ import com.github.kaylamle.sweeble.services.OpenAIService
 import com.github.kaylamle.sweeble.services.SweebleSettingsState
 import com.github.kaylamle.sweeble.services.NextEditSuggestionService
 import com.github.kaylamle.sweeble.services.CodeAnalysisService
-import com.github.kaylamle.sweeble.services.SuggestionType
+
 import com.github.kaylamle.sweeble.services.ChangeType
 import com.github.kaylamle.sweeble.services.SuggestionClassification
 import com.github.kaylamle.sweeble.services.CodeChangeApplicationService
@@ -308,37 +308,23 @@ class SweebleMainPlugin : InlineCompletionProvider {
                             val nextEditSuggestions = nextEditSuggestionService.getNextEditSuggestions(editor, context, language)
                             
                             if (nextEditSuggestions.isNotEmpty()) {
-                                // Use the highest confidence suggestion
-                                val bestSuggestion = nextEditSuggestions.first()
-                                LOG.info("Best next edit suggestion for request $requestId: ${bestSuggestion.type}")
+                                // Use the highest confidence changes
+                                LOG.info("Found ${nextEditSuggestions.size} code changes for request $requestId")
                                 
-                                when (bestSuggestion.type) {
-                                    SuggestionType.COMPLEX_EDIT, SuggestionType.MULTIPLE_CHANGES -> {
-                                        // For complex edits, show red highlighting AND green inlay hints ONLY
-                                        if (bestSuggestion.changes.isNotEmpty()) {
-                                            val changeCount = bestSuggestion.changes.size
-                                            
-                                            // Highlight the lines to be replaced in soft red AND show green inlays
-                                            changeHighlighter.highlightChanges(editor, bestSuggestion.changes)
-                                            
-                                            // Store the changes for later application and setup the action
-                                            currentComplexEditChanges = bestSuggestion.changes
-                                            currentEditor = editor
-                                            ApplyComplexEditAction.setCurrentChanges(bestSuggestion.changes, changeHighlighter, editor)
-                                            
-                                            LOG.info("Showing complex edit with red highlighting and green inlays")
-                                            LOG.debug("Full changes: ${bestSuggestion.changes}")
-                                            
-                                            // CRITICAL: Don't set suggestionElements.value for complex edits - use inlay hints instead
-                                            // This ensures simple inline suggestions never show with complex edits
-                                            lastProcessedContextHash = contextHash
-                                        }
-                                    }
-                                    SuggestionType.SIMPLE_INSERTION -> {
-                                        // This shouldn't happen since we classified as COMPLEX_EDIT
-                                        LOG.debug("Unexpected SIMPLE_INSERTION from NextEditSuggestionService")
-                                    }
-                                }
+                                // Highlight the lines to be replaced in soft red AND show green inlays
+                                changeHighlighter.highlightChanges(editor, nextEditSuggestions)
+                                
+                                // Store the changes for later application and setup the action
+                                currentComplexEditChanges = nextEditSuggestions
+                                currentEditor = editor
+                                ApplyComplexEditAction.setCurrentChanges(nextEditSuggestions, changeHighlighter, editor)
+                                
+                                LOG.info("Showing complex edit with red highlighting and green inlays")
+                                LOG.debug("Full changes: $nextEditSuggestions")
+                                
+                                // CRITICAL: Don't set suggestionElements.value for complex edits - use inlay hints instead
+                                // This ensures simple inline suggestions never show with complex edits
+                                lastProcessedContextHash = contextHash
                             } else {
                                 LOG.debug("No complex edit suggestions available for request $requestId")
                             }

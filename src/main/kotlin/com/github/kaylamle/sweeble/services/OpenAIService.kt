@@ -191,7 +191,7 @@ class OpenAIService {
         }
     }
 
-    suspend fun getComplexEditSuggestions(prompt: String, language: String, maxTokens: Int = 500, temperature: Double = 0.2): List<ComplexEditSuggestion> {
+    suspend fun getComplexEditSuggestions(prompt: String, language: String, maxTokens: Int = 500, temperature: Double = 0.2): List<CodeChange> {
         return try {
             LOG.info("OpenAIService: Starting complex edit suggestions request")
             val apiKey = getApiKey()
@@ -214,7 +214,7 @@ class OpenAIService {
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are an expert $language programmer. Analyze the code and identify WHOLE LINE changes needed to fix the specific problem.\n\nYou must return a JSON object with this exact structure:\n{\n  \"suggestions\": [\n    {\n      \"changes\": [\n        {\n          \"type\": \"INSERT|REPLACE|DELETE\",\n          \"startOffset\": 123,\n          \"endOffset\": 456,\n          \"newText\": \"text to insert/replace\"\n        }\n      ],\n      \"confidence\": 0.85\n    }\n  ]\n}\n\nCRITICAL WHOLE LINE REQUIREMENTS:\n- You MUST work with COMPLETE LINES only\n- Calculate offsets to cover ENTIRE LINES from start to end\n- Replace/insert/delete ENTIRE LINES, never partial text\n- Include newline characters in your offset calculations\n\nSTEP-BY-STEP PROCESS:\n1. Identify the exact problem (typo, missing character, wrong method name, etc.)\n2. Find the line number containing the problem\n3. Calculate the start offset of that line (beginning of line)\n4. Calculate the end offset of that line (end of line including newline)\n5. Replace the ENTIRE line with the corrected version\n\nGuidelines:\n- WHOLE LINES ONLY: Always replace/insert/delete complete lines\n- For typos: Replace the entire line containing the typo (e.g., 'retrn \"HelloWorld{\" +' → 'return \"HelloWorld{\" +')\n- For missing elements: Insert complete new lines\n- For wrong method calls: Replace the entire line with the correct method call\n- Calculate offsets for complete lines (from start of line to end of line including newline)\n- The [CURSOR_HERE] marker shows where the user is typing\n- Confidence should be between 0.0 and 1.0\n\nEXAMPLES:\n- Typo 'retrn' on line 12: Find line 12 start offset (e.g., 150), find line 12 end offset (e.g., 175), REPLACE entire range with 'return \"HelloWorld{\" +\\n'\n- Missing semicolon: Find the line end offset, INSERT at that position with ';\\n'\n\nCRITICAL: Always work with complete lines. Calculate offsets for entire lines from start to end including newlines."
+                            "content": "You are an expert $language programmer. Analyze the code and identify WHOLE LINE changes needed to fix the specific problem.\n\nCRITICAL WHOLE LINE REQUIREMENTS:\n- You MUST work with one or more groups of at least one COMPLETE LINE only\n- Calculate offsets to cover ENTIRE LINES from start to end\n- Replace/insert/delete ENTIRE LINES, never partial text\n- Include newline characters in your offset calculations\n\nSTEP-BY-STEP PROCESS:\n1. Identify the exact problem (typo, missing character, wrong method name, etc.)\n2. Find the line number containing the problem\n3. Calculate the start offset of that line (beginning of line)\n4. Calculate the end offset of that line (end of line including newline)\n5. Replace the ENTIRE line with the corrected version\n\nGuidelines:\n- WHOLE LINES ONLY: Always replace/insert/delete complete lines\n- For typos: Replace the entire line containing the typo (e.g., 'retrn \"HelloWorld{\" +' → 'return \"HelloWorld{\" +')\n- For missing elements: Insert complete new lines\n- For wrong method calls: Replace the entire line with the correct method call\n- Calculate offsets for complete lines (from start of line to end of line including newline)\n- The [CURSOR_HERE] marker shows where the user is typing\n- Confidence should be between 0.0 and 1.0\n\nEXAMPLES:\n- Typo 'retrn' on line 12: Find line 12 start offset (e.g., 150), find line 12 end offset (e.g., 175), REPLACE entire range with 'return \"HelloWorld{\" +\\n'\n- Missing semicolon: Find the line end offset, INSERT at that position with ';\\n'\n\nCRITICAL: Always work with complete lines. Calculate offsets for entire lines from start to end including newlines."
                         },
                         {
                             "role": "user",
@@ -224,7 +224,48 @@ class OpenAIService {
                     "max_tokens": $maxTokens,
                     "temperature": $temperature,
                     "response_format": {
-                        "type": "json_object"
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "ComplexEditChanges",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "changes": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string",
+                                                    "enum": ["INSERT", "REPLACE", "DELETE"],
+                                                    "description": "The type of change to make"
+                                                },
+                                                "startOffset": {
+                                                    "type": "integer",
+                                                    "description": "Start offset of the change (inclusive)"
+                                                },
+                                                "endOffset": {
+                                                    "type": "integer",
+                                                    "description": "End offset of the change (exclusive)"
+                                                },
+                                                "newText": {
+                                                    "type": "string",
+                                                    "description": "Text to insert or replace with (empty string for DELETE)"
+                                                },
+                                                "confidence": {
+                                                    "type": "number",
+                                                    "minimum": 0.0,
+                                                    "maximum": 1.0,
+                                                    "description": "Confidence level of this change (0.0 to 1.0)"
+                                                }
+                                            },
+                                            "required": ["type", "startOffset", "endOffset", "newText", "confidence"]
+                                        }
+                                    }
+                                },
+                                "required": ["changes"]
+                            }
+                        }
                     }
                 }
             """.trimIndent()
@@ -265,7 +306,7 @@ class OpenAIService {
         }
     }
     
-    private fun parseComplexEditSuggestions(responseBody: String): List<ComplexEditSuggestion> {
+    private fun parseComplexEditSuggestions(responseBody: String): List<CodeChange> {
         return try {
             val json = JSONObject(responseBody)
             val choices = json.getJSONArray("choices")
@@ -277,59 +318,31 @@ class OpenAIService {
                 
                 LOG.debug("Raw AI content: $content")
                 
-                // Extract JSON from the response
-                val jsonMatch = Regex("```json\\s*(.*?)\\s*```", RegexOption.DOT_MATCHES_ALL).find(content)
-                val jsonContent = jsonMatch?.groupValues?.get(1) ?: content
-                
-                LOG.debug("Extracted JSON content: $jsonContent")
-                
-                // With response_format: json_object, the content is already a JSON object
-                // The AI should return a JSON object with a "suggestions" array
-                val suggestionsArray = if (jsonContent.contains("suggestions")) {
-                    // Try to parse as object with suggestions array
-                    try {
-                        JSONObject(jsonContent).getJSONArray("suggestions")
-                    } catch (e: Exception) {
-                        LOG.warn("Could not parse suggestions array from JSON object")
-                        return emptyList()
-                    }
-                } else {
-                    // Fallback: try to parse as direct array (for backward compatibility)
-                    try {
-                        org.json.JSONArray(jsonContent)
-                    } catch (e: Exception) {
-                        LOG.warn("Could not parse suggestions as either object or array")
-                        return emptyList()
-                    }
+                // With response_format: json_schema, the content is already a properly structured JSON object
+                val changesArray = try {
+                    JSONObject(content).getJSONArray("changes")
+                } catch (e: Exception) {
+                    LOG.warn("Could not parse changes array from JSON response: ${e.message}")
+                    return emptyList()
                 }
                 
-                val suggestions = mutableListOf<ComplexEditSuggestion>()
+                val changes = mutableListOf<CodeChange>()
                 
-                for (i in 0 until suggestionsArray.length()) {
-                    val suggestionObj = suggestionsArray.getJSONObject(i)
-                    val changesArray = suggestionObj.getJSONArray("changes")
-                    val changes = mutableListOf<CodeChange>()
-                    
-                    for (j in 0 until changesArray.length()) {
-                        val changeObj = changesArray.getJSONObject(j)
-                        val change = CodeChange(
-                            type = ChangeType.valueOf(changeObj.getString("type")),
-                            startOffset = changeObj.getInt("startOffset"),
-                            endOffset = changeObj.getInt("endOffset"),
-                            newText = changeObj.getString("newText")
-                        )
-                        LOG.info("Parsed change $j: ${change.type} at ${change.startOffset}-${change.endOffset}: '${change.newText}'")
-                        changes.add(change)
-                    }
-                    
-                    suggestions.add(ComplexEditSuggestion(
-                        changes = changes,
-                        confidence = suggestionObj.getDouble("confidence")
-                    ))
+                for (i in 0 until changesArray.length()) {
+                    val changeObj = changesArray.getJSONObject(i)
+                    val change = CodeChange(
+                        type = ChangeType.valueOf(changeObj.getString("type")),
+                        startOffset = changeObj.getInt("startOffset"),
+                        endOffset = changeObj.getInt("endOffset"),
+                        newText = changeObj.getString("newText"),
+                        confidence = changeObj.getDouble("confidence")
+                    )
+                    LOG.info("Parsed change $i: ${change.type} at ${change.startOffset}-${change.endOffset}: '${change.newText}' with confidence ${change.confidence}")
+                    changes.add(change)
                 }
                 
-                LOG.info("Successfully parsed ${suggestions.size} complex edit suggestions")
-                suggestions
+                LOG.info("Successfully parsed ${changes.size} code changes")
+                changes.sortedByDescending { it.confidence }
             } else {
                 LOG.warn("No choices found in OpenAI response")
                 emptyList()
@@ -373,7 +386,7 @@ class OpenAIService {
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are a code analysis expert. Analyze the given code and determine what type of change is needed at the [CURSOR_HERE] marker.\n\nRespond with exactly one of these three options:\n- SIMPLE_INSERTION: Can be completed by adding text at the cursor position (e.g., completing a method body, adding a semicolon, continuing a statement)\n- COMPLEX_EDIT: Requires modifying existing code, fixing syntax errors, or making structural changes (e.g., correcting method signatures, fixing type mismatches)\n- NO_SUGGESTION: Nothing needs to be added or changed at the cursor position, or it's impossible to make a valid suggestion\n\nExamples:\n- 'public void test[CURSOR_HERE]' -> SIMPLE_INSERTION (completing method name)\n- 'public void test() { [CURSOR_HERE] }' -> SIMPLE_INSERTION (completing method body)\n- 'public HelloWo[CURSOR_HERE]rld(String foo, String bar) {' -> NO_SUGGESTION (class name already complete)\n- 'int x = String.parseInt[CURSOR_HERE]' -> COMPLEX_EDIT (fixing incorrect method name)\n- 'public int addFo[CURSOR_HERE](int foo, int bar)' -> COMPLEX_EDIT (fixing method signature syntax)\n- 'public void test() { return; [CURSOR_HERE] }' -> NO_SUGGESTION (method already complete)\n\nRespond with only the classification, no explanation."
+                            "content": "You are a code analysis expert. Analyze the given code and determine what type of change is needed at the [CURSOR_HERE] marker.\n\nExamples:\n- 'public void test[CURSOR_HERE]' -> SIMPLE_INSERTION (completing method name)\n- 'public void test() { [CURSOR_HERE] }' -> SIMPLE_INSERTION (completing method body)\n- 'public HelloWo[CURSOR_HERE]rld(String foo, String bar) {' -> NO_SUGGESTION (class name already complete)\n- 'int x = String.parseInt[CURSOR_HERE]' -> COMPLEX_EDIT (fixing incorrect method name)\n- 'public int addFo[CURSOR_HERE](int foo, int bar)' -> COMPLEX_EDIT (fixing method signature syntax)\n- 'public void test() { return; [CURSOR_HERE] }' -> NO_SUGGESTION (method already complete)"
                         },
                         {
                             "role": "user",
@@ -381,7 +394,24 @@ class OpenAIService {
                         }
                     ],
                     "max_tokens": 10,
-                    "temperature": 0.0
+                    "temperature": 0.0,
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "ChangeClassification",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "classification": {
+                                        "type": "string",
+                                        "enum": ["SIMPLE_INSERTION", "COMPLEX_EDIT", "NO_SUGGESTION"],
+                                        "description": "The type of change needed at the cursor position"
+                                    }
+                                },
+                                "required": ["classification"]
+                            }
+                        }
+                    }
                 }
             """.trimIndent()
             
@@ -426,14 +456,18 @@ class OpenAIService {
             if (choices.length() > 0) {
                 val firstChoice = choices.getJSONObject(0)
                 val message = firstChoice.getJSONObject("message")
-                val content = message.getString("content").trim()
+                val content = message.getString("content")
                 
-                when (content.uppercase()) {
+                // Parse the JSON content from the structured response
+                val contentJson = JSONObject(content)
+                val classification = contentJson.getString("classification")
+                
+                when (classification.uppercase()) {
                     "SIMPLE_INSERTION" -> SuggestionClassification.SIMPLE_INSERTION
                     "COMPLEX_EDIT" -> SuggestionClassification.COMPLEX_EDIT
                     "NO_SUGGESTION" -> SuggestionClassification.NO_SUGGESTION
                     else -> {
-                        LOG.warn("Unknown classification: '$content', defaulting to NO_SUGGESTION")
+                        LOG.warn("Unknown classification: '$classification', defaulting to NO_SUGGESTION")
                         SuggestionClassification.NO_SUGGESTION
                     }
                 }
@@ -448,7 +482,4 @@ class OpenAIService {
     }
 }
 
-data class ComplexEditSuggestion(
-    val changes: List<CodeChange>,
-    val confidence: Double
-)
+// Removed ComplexEditSuggestion - using flat CodeChange list with confidence
