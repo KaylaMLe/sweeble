@@ -15,6 +15,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import com.github.kaylamle.sweeble.services.OpenAIService
 import com.github.kaylamle.sweeble.services.SweebleSettingsState
+import com.github.kaylamle.sweeble.services.NextEditSuggestionService
+import com.github.kaylamle.sweeble.services.CodeAnalysisService
+import com.github.kaylamle.sweeble.services.SuggestionType
+import com.github.kaylamle.sweeble.services.ChangeType
+import com.github.kaylamle.sweeble.services.CodeChangeApplicationService
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.awt.Color
+
 import java.util.concurrent.atomic.AtomicLong
 import java.security.MessageDigest
 
@@ -37,6 +43,9 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
     }
 
     private val openAIService = OpenAIService()
+    private val nextEditSuggestionService = NextEditSuggestionService()
+    private val codeAnalysisService = CodeAnalysisService()
+    private val codeChangeApplicationService = CodeChangeApplicationService()
     
     // Track the current request to cancel previous ones
     private var currentRequestJob: Job? = null
@@ -65,10 +74,7 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
         return object : InlineCompletionSuggestion() {
             override val suggestionFlow: Flow<InlineCompletionElement> = flowOf(
                 InlineCompletionTextElement(" // Test completion") { editor ->
-                    TextAttributes().apply {
-                        foregroundColor = Color.GRAY
-                        fontType = 0 // Normal font
-                    }
+                    TextAttributes() // Use default IDE styling
                 }
             )
             
@@ -252,24 +258,88 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
                     return@launch
                 }
                 
-                LOG.debug("Calling OpenAI API for completion with request ID: $requestId...")
-                val completion = openAIService.getCompletion(context, language)
-                LOG.info("AI completion for request $requestId: '$completion'")
+                // Get the editor from the request
+                val editor = getEditorFromRequest(request)
+                if (editor == null) {
+                    LOG.debug("Could not get editor from request $requestId")
+                    return@launch
+                }
+                
+                // Analyze the code and get next edit suggestions
+                LOG.debug("Analyzing code and getting next edit suggestions for request $requestId...")
+                val nextEditSuggestions = nextEditSuggestionService.getNextEditSuggestions(editor, context, language)
                 
                 // Check if this request is still current
                 if (currentRequestJob == this) {
-                    if (completion != null && completion.isNotBlank()) {
-                        LOG.info("Creating AI suggestion with completion for request $requestId: '$completion'")
-                        val element = InlineCompletionTextElement(completion) { editor ->
-                            TextAttributes().apply {
-                                foregroundColor = Color.GRAY
-                                fontType = 0
+                    if (nextEditSuggestions.isNotEmpty()) {
+                        // Use the highest confidence suggestion
+                        val bestSuggestion = nextEditSuggestions.first()
+                        LOG.info("Best next edit suggestion for request $requestId: ${bestSuggestion.description}")
+                        
+                        // For all suggestions, create inline text elements
+                        when (bestSuggestion.type) {
+                            SuggestionType.SIMPLE_INSERTION -> {
+                                val insertionText = bestSuggestion.changes.firstOrNull()?.newText ?: ""
+                                if (insertionText.isNotEmpty()) {
+                                    val element = InlineCompletionTextElement(insertionText) { editor ->
+                                        TextAttributes() // Use default IDE styling
+                                    }
+                                    suggestionElements.value = element
+                                    lastProcessedContextHash = contextHash
+                                }
+                            }
+                            SuggestionType.COMPLEX_EDIT, SuggestionType.MULTIPLE_CHANGES -> {
+                                // For complex edits, show the most impactful change as inline text
+                                // but store the full suggestion for when user accepts it
+                                val primaryChange = bestSuggestion.changes.firstOrNull()
+                                if (primaryChange != null) {
+                                    val changeText = when (primaryChange.type) {
+                                        ChangeType.INSERT -> primaryChange.newText
+                                        ChangeType.REPLACE -> primaryChange.newText
+                                        ChangeType.DELETE -> "" // Don't show deletions inline
+                                        else -> "" // Handle any future change types
+                                    }
+                                    
+                                    if (changeText.isNotEmpty()) {
+                                        // For multiple changes, show a summary instead of just the first change
+                                        val displayText = if (bestSuggestion.changes.size > 1) {
+                                            // Show a summary of what will be changed
+                                            val changeCount = bestSuggestion.changes.size
+                                            " // Apply $changeCount changes: ${bestSuggestion.description}"
+                                        } else {
+                                            changeText
+                                        }
+                                        
+                                        val element = InlineCompletionTextElement(displayText) { editor ->
+                                            TextAttributes() // Use default IDE styling
+                                        }
+                                        
+                                        if (bestSuggestion.changes.size > 1) {
+                                            LOG.info("Showing summary of ${bestSuggestion.changes.size} changes: ${bestSuggestion.description}")
+                                            LOG.debug("Full changes: ${bestSuggestion.changes}")
+                                        }
+                                        suggestionElements.value = element
+                                        lastProcessedContextHash = contextHash
+                                    }
+                                }
                             }
                         }
-                        suggestionElements.value = element
-                        lastProcessedContextHash = contextHash
                     } else {
-                        LOG.debug("No valid AI completion received for request $requestId")
+                        // Fallback to original completion logic
+                        LOG.debug("No next edit suggestions, falling back to original completion logic for request $requestId...")
+                        val completion = openAIService.getCompletion(context, language)
+                        LOG.info("AI completion for request $requestId: '$completion'")
+                        
+                        if (completion != null && completion.isNotBlank()) {
+                            LOG.info("Creating AI suggestion with completion for request $requestId: '$completion'")
+                            val element = InlineCompletionTextElement(completion) { editor ->
+                                TextAttributes() // Use default IDE styling
+                            }
+                            suggestionElements.value = element
+                            lastProcessedContextHash = contextHash
+                        } else {
+                            LOG.debug("No valid AI completion received for request $requestId")
+                        }
                     }
                 } else {
                     LOG.debug("Request $requestId was superseded by a newer request, discarding result")
@@ -290,6 +360,22 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
             override fun toString(): String {
                 return "SweebleAsyncSuggestion(requestId: $requestId)"
             }
+        }
+    }
+    
+    private fun getEditorFromRequest(request: InlineCompletionRequest): Editor? {
+        return try {
+            val requestMethods = request::class.java.methods
+            val editorMethod = requestMethods.find { it.name == "getEditor" && it.parameterCount == 0 }
+            if (editorMethod != null) {
+                val editor = editorMethod.invoke(request)
+                if (editor is Editor) {
+                    editor
+                } else null
+            } else null
+        } catch (e: Exception) {
+            LOG.debug("Error getting editor from request: ${e.message}")
+            null
         }
     }
 }

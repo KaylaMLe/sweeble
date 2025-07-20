@@ -19,4 +19,6 @@
             id="com.github.kaylamle.sweeble.services.SweebleSettingsConfigurable"
             displayName="Sweeble AI Assistant" />
     </extensions>
+    
+
 </idea-plugin>

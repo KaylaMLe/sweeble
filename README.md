@@ -14,6 +14,8 @@ Sweeble is an AI-powered inline completion plugin for IntelliJ IDEA that provide
 - ⚙️ **Flexible Configuration**: API key can be set in plugin settings or system environment
 - 🚀 **Real-time Suggestions**: Provides instant inline completions as you type
 - 🎨 **Visual Feedback**: Clear indication when API key needs to be configured
+- 🔧 **Next Edit Suggestions**: Intelligent suggestions for fixing incomplete code and syntax errors
+- 🎯 **Smart Analysis**: Automatically detects when simple insertions can complete logical units vs when complex edits are needed
 
 **Requirements:**
 
@@ -30,6 +32,29 @@ Sweeble is an AI-powered inline completion plugin for IntelliJ IDEA that provide
 2. Go to <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>Marketplace</kbd>
 3. Search for "Sweeble"
 4. Click <kbd>Install</kbd>
+
+## 🎯 Usage
+
+### Inline Completions
+
+Sweeble provides intelligent inline completions as you type. Simply start typing in any supported file type, and you'll see ghost text suggestions appear.
+
+### Next Edit Suggestions
+
+Sweeble can intelligently suggest fixes for incomplete code and syntax errors:
+
+1. **Automatic Detection**: The plugin analyzes your code and determines if a simple insertion can complete the current logical unit
+2. **Smart Suggestions**: If complex edits are needed, it suggests minimal changes to fix the code
+3. **Manual Trigger**: Right-click in the editor and select "Show Next Edit Suggestions" or press <kbd>Ctrl+Alt+S</kbd>
+4. **Apply Changes**: Choose from the list of suggestions to apply the changes
+
+**Examples:**
+
+- **Simple Insertion**: Completing a function call with missing parameters
+- **Complex Edit**: Fixing a mistyped function parameter or adding missing braces
+- **Multiple Changes**: Suggesting fixes for syntax errors across multiple lines
+
+The plugin prioritizes the smallest possible changes and limits scope to the current logical unit (function, class, etc.).
 
 ### For Developers
 
@@ -94,8 +119,12 @@ sweeble/
 ├── src/main/kotlin/com/github/kaylamle/sweeble/
 │   ├── inline/
 │   │   └── SweebleInlineCompletionProvider.kt    # Main completion logic
+│   ├── actions/
+│   │   └── ShowNextEditSuggestionsAction.kt      # Next edit suggestions action
 │   └── services/
 │       ├── OpenAIService.kt                      # OpenAI API integration
+│       ├── CodeAnalysisService.kt                # Code structure analysis
+│       ├── NextEditSuggestionService.kt          # Next edit suggestions logic
 │       ├── SweebleSettingsState.kt               # Settings persistence
 │       └── SweebleSettingsConfigurable.kt        # Settings UI
 ├── src/main/resources/META-INF/
@@ -134,6 +163,7 @@ sweeble/
 - Extracts context (500 chars before/after cursor)
 - Detects programming language automatically
 - Handles API key validation and error states
+- Integrates with next edit suggestions for enhanced completions
 
 #### OpenAIService
 
@@ -141,6 +171,21 @@ sweeble/
 - Implements API key resolution (settings → environment)
 - Handles request/response parsing
 - Provides error handling and logging
+- Supports both simple completions and complex edit suggestions
+
+#### CodeAnalysisService
+
+- Analyzes code structure around the cursor
+- Detects incomplete logical units (functions, classes, etc.)
+- Identifies syntax errors and missing elements
+- Determines if simple insertions can complete the code
+
+#### NextEditSuggestionService
+
+- Combines code analysis with AI-powered suggestions
+- Generates both simple insertions and complex edit suggestions
+- Prioritizes minimal changes with limited scope
+- Provides confidence scores for suggestions
 
 #### Settings Management
 

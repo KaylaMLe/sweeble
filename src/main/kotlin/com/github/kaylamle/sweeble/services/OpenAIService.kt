@@ -7,6 +7,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
+import org.json.JSONArray
+import org.json.JSONException
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -179,4 +181,169 @@ class OpenAIService {
             null
         }
     }
-} 
+
+    suspend fun getComplexEditSuggestions(prompt: String, language: String, maxTokens: Int = 500, temperature: Double = 0.2): List<ComplexEditSuggestion> {
+        return try {
+            LOG.info("OpenAIService: Starting complex edit suggestions request")
+            val apiKey = getApiKey()
+
+            if (apiKey.isNullOrBlank()) {
+                LOG.error("OpenAI API key not found for complex edit suggestions")
+                return emptyList()
+            }
+
+            val escapedPrompt = prompt
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            
+            val requestBody = """
+                {
+                    "model": "$MODEL",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are an expert $language programmer. Analyze the code and suggest minimal edits to fix issues or complete incomplete logical units.\n\nYou must return a JSON object with this exact structure:\n{\n  \"suggestions\": [\n    {\n      \"description\": \"Brief description of the fix\",\n      \"changes\": [\n        {\n          \"type\": \"INSERT|REPLACE|DELETE\",\n          \"startOffset\": 123,\n          \"endOffset\": 456,\n          \"newText\": \"text to insert/replace\",\n          \"description\": \"What this change does\"\n        }\n      ],\n      \"confidence\": 0.85\n    }\n  ]\n}\n\nGuidelines:\n- Focus on the smallest possible changes that will fix the issues\n- Calculate offsets carefully: count characters from the start of the document\n- For INSERT: startOffset and endOffset should be the same (insertion point)\n- For REPLACE: startOffset and endOffset define the range to replace\n- For DELETE: startOffset and endOffset define the range to delete\n- Limit scope to the current logical unit (function, class, etc.)\n- If a function has a mistyped parameter, fix the function instead of editing the class\n- Confidence should be between 0.0 and 1.0\n- IMPORTANT: The [CURSOR_HERE] marker shows where the user is typing - use this to understand context\n- CRITICAL: Pay attention to field types and method return types. Don't suggest changing types unless there's a clear type mismatch\n- For Java: String fields should be assigned String values, int fields should be assigned int values\n- For method return types: if a method returns int, the expression should evaluate to an int\n- Multiple changes can be suggested in a single suggestion if they're related fixes\n- EXAMPLES:\n  - If a constructor parameter is 'int bar' but the field is 'String bar', change the parameter to 'String bar'\n  - If a method returns 'int' but tries to add 'String + String', change the operation to parse strings to ints\n  - If a method returns 'int' but tries to concatenate strings, change the operation to parse strings to ints\n- BE CAREFUL: Don't suggest changing field types unless the assignment is clearly wrong"
+                        },
+                        {
+                            "role": "user",
+                            "content": "$escapedPrompt"
+                        }
+                    ],
+                    "max_tokens": $maxTokens,
+                    "temperature": $temperature,
+                    "response_format": {
+                        "type": "json_object"
+                    }
+                }
+            """.trimIndent()
+            
+            val request = HttpRequest.newBuilder()
+                .uri(URI.create(API_URL))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer $apiKey")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build()
+            
+            val response = withTimeout(5000) {
+                withContext(Dispatchers.IO) {
+                    httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+                }
+            }
+            
+            if (response.statusCode() == 200) {
+                val responseBody = response.body()
+                LOG.info("Raw OpenAI response for complex edits: $responseBody")
+                
+                // Check if response was truncated
+                if (responseBody.contains("\"finish_reason\": \"length\"")) {
+                    LOG.warn("AI response was truncated due to token limit. Consider increasing max_tokens.")
+                }
+                
+                parseComplexEditSuggestions(responseBody)
+            } else {
+                LOG.error("OpenAI API error for complex edits: ${response.statusCode()} - ${response.body()}")
+                emptyList()
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            LOG.debug("Complex edit suggestions were cancelled (normal behavior)")
+            emptyList()
+        } catch (e: Exception) {
+            LOG.warn("Error getting complex edit suggestions", e)
+            emptyList()
+        }
+    }
+    
+    private fun parseComplexEditSuggestions(responseBody: String): List<ComplexEditSuggestion> {
+        return try {
+            val json = JSONObject(responseBody)
+            val choices = json.getJSONArray("choices")
+            
+            if (choices.length() > 0) {
+                val firstChoice = choices.getJSONObject(0)
+                val message = firstChoice.getJSONObject("message")
+                val content = message.getString("content")
+                
+                LOG.debug("Raw AI content: $content")
+                
+                // Extract JSON from the response
+                val jsonMatch = Regex("```json\\s*(.*?)\\s*```", RegexOption.DOT_MATCHES_ALL).find(content)
+                val jsonContent = jsonMatch?.groupValues?.get(1) ?: content
+                
+                LOG.debug("Extracted JSON content: $jsonContent")
+                
+                // With response_format: json_object, the content is already a JSON object
+                // The AI should return a JSON object with a "suggestions" array
+                val suggestionsArray = if (jsonContent.contains("suggestions")) {
+                    // Try to parse as object with suggestions array
+                    try {
+                        JSONObject(jsonContent).getJSONArray("suggestions")
+                    } catch (e: Exception) {
+                        LOG.warn("Could not parse suggestions array from JSON object")
+                        return emptyList()
+                    }
+                } else {
+                    // Fallback: try to parse as direct array (for backward compatibility)
+                    try {
+                        org.json.JSONArray(jsonContent)
+                    } catch (e: Exception) {
+                        LOG.warn("Could not parse suggestions as either object or array")
+                        return emptyList()
+                    }
+                }
+                
+                val suggestions = mutableListOf<ComplexEditSuggestion>()
+                
+                for (i in 0 until suggestionsArray.length()) {
+                    val suggestionObj = suggestionsArray.getJSONObject(i)
+                    val changesArray = suggestionObj.getJSONArray("changes")
+                    val changes = mutableListOf<CodeChange>()
+                    
+                    for (j in 0 until changesArray.length()) {
+                        val changeObj = changesArray.getJSONObject(j)
+                        changes.add(CodeChange(
+                            type = ChangeType.valueOf(changeObj.getString("type")),
+                            startOffset = changeObj.getInt("startOffset"),
+                            endOffset = changeObj.getInt("endOffset"),
+                            newText = changeObj.getString("newText"),
+                            description = changeObj.getString("description")
+                        ))
+                    }
+                    
+                    suggestions.add(ComplexEditSuggestion(
+                        description = suggestionObj.getString("description"),
+                        changes = changes,
+                        confidence = suggestionObj.getDouble("confidence")
+                    ))
+                }
+                
+                LOG.info("Successfully parsed ${suggestions.size} complex edit suggestions")
+                suggestions
+            } else {
+                LOG.warn("No choices found in OpenAI response")
+                emptyList()
+            }
+        } catch (e: org.json.JSONException) {
+            LOG.warn("Failed to parse JSON from AI response: ${e.message}")
+            LOG.debug("Response body: $responseBody")
+            
+            // Check if the response was truncated
+            if (responseBody.contains("\"finish_reason\": \"length\"")) {
+                LOG.warn("AI response was truncated due to token limit. Consider increasing max_tokens.")
+            }
+            
+            emptyList()
+        } catch (e: Exception) {
+            LOG.warn("Error parsing complex edit suggestions: ${e.message}")
+            emptyList()
+        }
+    }
+}
+
+data class ComplexEditSuggestion(
+    val description: String,
+    val changes: List<CodeChange>,
+    val confidence: Double
+)
