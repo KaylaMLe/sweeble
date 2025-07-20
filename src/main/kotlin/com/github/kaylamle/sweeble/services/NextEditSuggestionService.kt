@@ -8,7 +8,6 @@ import kotlinx.coroutines.withContext
 
 data class NextEditSuggestion(
     val type: SuggestionType,
-    val description: String,
     val changes: List<CodeChange>,
     val confidence: Double,
     val preview: String
@@ -47,13 +46,11 @@ class NextEditSuggestionService {
                     if (insertionSuggestion != null) {
                         suggestions.add(NextEditSuggestion(
                             type = SuggestionType.SIMPLE_INSERTION,
-                            description = "Complete current logical unit",
                             changes = listOf(CodeChange(
                                 type = ChangeType.INSERT,
                                 startOffset = cursorOffset,
                                 endOffset = cursorOffset,
-                                newText = insertionSuggestion,
-                                description = "Insert completion at cursor"
+                                newText = insertionSuggestion
                             )),
                             confidence = 0.9,
                             preview = insertionSuggestion
@@ -71,7 +68,6 @@ class NextEditSuggestionService {
                 val ruleBasedSuggestions = analysis.editSuggestions.map { editSuggestion ->
                     NextEditSuggestion(
                         type = SuggestionType.COMPLEX_EDIT,
-                        description = editSuggestion.description,
                         changes = editSuggestion.changes,
                         confidence = 0.8,
                         preview = generatePreview(editSuggestion.changes, editor)
@@ -113,7 +109,6 @@ class NextEditSuggestionService {
             aiSuggestions.map { suggestion ->
                 NextEditSuggestion(
                     type = SuggestionType.COMPLEX_EDIT,
-                    description = suggestion.description,
                     changes = suggestion.changes,
                     confidence = suggestion.confidence,
                     preview = generatePreview(suggestion.changes, editor)

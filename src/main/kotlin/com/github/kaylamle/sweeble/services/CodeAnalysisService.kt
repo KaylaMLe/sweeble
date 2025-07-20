@@ -20,7 +20,6 @@ data class CodeAnalysisResult(
 )
 
 data class EditSuggestion(
-    val description: String,
     val changes: List<CodeChange>,
     val priority: Int // Lower number = higher priority
 )
@@ -29,8 +28,7 @@ data class CodeChange(
     val type: ChangeType,
     val startOffset: Int,
     val endOffset: Int,
-    val newText: String,
-    val description: String
+    val newText: String
 )
 
 enum class ChangeType {
@@ -213,13 +211,11 @@ class CodeAnalysisService {
         // Fix missing semicolon
         if (currentLine.trim().isNotEmpty() && !currentLine.trim().endsWith(";") && !currentLine.trim().endsWith("{") && !currentLine.trim().endsWith("}")) {
             suggestions.add(EditSuggestion(
-                description = "Add missing semicolon",
                 changes = listOf(CodeChange(
                     type = ChangeType.INSERT,
                     startOffset = offset,
                     endOffset = offset,
-                    newText = ";",
-                    description = "Add semicolon to complete statement"
+                    newText = ";"
                 )),
                 priority = 1
             ))
@@ -229,13 +225,11 @@ class CodeAnalysisService {
         val beforeContext = getContextBeforeCursor(editor, offset, 50)
         if (beforeContext.count { it == '(' } > beforeContext.count { it == ')' }) {
             suggestions.add(EditSuggestion(
-                description = "Close open parenthesis",
                 changes = listOf(CodeChange(
                     type = ChangeType.INSERT,
                     startOffset = offset,
                     endOffset = offset,
-                    newText = ")",
-                    description = "Close open parenthesis"
+                    newText = ")"
                 )),
                 priority = 2
             ))
@@ -244,13 +238,11 @@ class CodeAnalysisService {
         // Fix incomplete braces
         if (beforeContext.count { it == '{' } > beforeContext.count { it == '}' }) {
             suggestions.add(EditSuggestion(
-                description = "Close open brace",
                 changes = listOf(CodeChange(
                     type = ChangeType.INSERT,
                     startOffset = offset,
                     endOffset = offset,
-                    newText = "}",
-                    description = "Close open brace"
+                    newText = "}"
                 )),
                 priority = 3
             ))
@@ -259,13 +251,11 @@ class CodeAnalysisService {
         // Fix incomplete brackets
         if (beforeContext.count { it == '[' } > beforeContext.count { it == ']' }) {
             suggestions.add(EditSuggestion(
-                description = "Close open bracket",
                 changes = listOf(CodeChange(
                     type = ChangeType.INSERT,
                     startOffset = offset,
                     endOffset = offset,
-                    newText = "]",
-                    description = "Close open bracket"
+                    newText = "]"
                 )),
                 priority = 4
             ))

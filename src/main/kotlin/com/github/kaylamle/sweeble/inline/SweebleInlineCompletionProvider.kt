@@ -13,6 +13,8 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
+import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.openapi.editor.event.DocumentEvent
 import com.github.kaylamle.sweeble.services.OpenAIService
 import com.github.kaylamle.sweeble.services.SweebleSettingsState
 import com.github.kaylamle.sweeble.services.NextEditSuggestionService
@@ -20,6 +22,8 @@ import com.github.kaylamle.sweeble.services.CodeAnalysisService
 import com.github.kaylamle.sweeble.services.SuggestionType
 import com.github.kaylamle.sweeble.services.ChangeType
 import com.github.kaylamle.sweeble.services.CodeChangeApplicationService
+import com.github.kaylamle.sweeble.highlighting.ChangeHighlighter
+import com.github.kaylamle.sweeble.actions.ApplyComplexEditAction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,11 +50,16 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
     private val nextEditSuggestionService = NextEditSuggestionService()
     private val codeAnalysisService = CodeAnalysisService()
     private val codeChangeApplicationService = CodeChangeApplicationService()
+    private val changeHighlighter = ChangeHighlighter()
     
     // Track the current request to cancel previous ones
     private var currentRequestJob: Job? = null
     private val requestCounter = AtomicLong(0)
     private var lastProcessedContextHash: String? = null
+    
+    // Store the current complex edit suggestion for application
+    private var currentComplexEditChanges: List<com.github.kaylamle.sweeble.services.CodeChange>? = null
+    private var currentEditor: Editor? = null
 
     init {
         LOG.info("SweebleInlineCompletionProvider: Initializing...")
@@ -72,11 +81,7 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
 
     private fun createTestSuggestion(): InlineCompletionSuggestion {
         return object : InlineCompletionSuggestion() {
-            override val suggestionFlow: Flow<InlineCompletionElement> = flowOf(
-                InlineCompletionTextElement(" // Test completion") { editor ->
-                    TextAttributes() // Use default IDE styling
-                }
-            )
+            override val suggestionFlow: Flow<InlineCompletionElement> = flowOf()
             
             override fun toString(): String {
                 return "SweebleTestSuggestion"
@@ -179,7 +184,10 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
                                     val language = detectLanguage(value)
                                     
                                     // Create context with before, cursor position, and after
-                                    val fullContext = "$beforeContext[CURSOR_HERE]$afterContext"
+                                    // Filter out any inline completion text that might be in the document
+                                    val cleanBeforeContext = filterInlineCompletionText(beforeContext)
+                                    val cleanAfterContext = filterInlineCompletionText(afterContext)
+                                    val fullContext = "$cleanBeforeContext[CURSOR_HERE]$cleanAfterContext"
                                     LOG.info("Full context sent to AI: '$fullContext'")
                                     Pair(fullContext, language)
                                 }
@@ -205,8 +213,11 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
         val requestId = requestCounter.incrementAndGet()
         LOG.debug("SweebleInlineCompletionProvider: getSuggestion called with request ID: $requestId")
         
-        // Cancel any previous request
+        // Cancel any previous request and clean up highlights
         currentRequestJob?.cancel()
+        changeHighlighter.cleanup()
+        currentComplexEditChanges = null
+        currentEditor = null
         
         val (context, language) = extractContext(request)
         LOG.debug("Extracted context: '$context' with language: '$language'")
@@ -274,58 +285,48 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
                     if (nextEditSuggestions.isNotEmpty()) {
                         // Use the highest confidence suggestion
                         val bestSuggestion = nextEditSuggestions.first()
-                        LOG.info("Best next edit suggestion for request $requestId: ${bestSuggestion.description}")
+                        LOG.info("Best next edit suggestion for request $requestId: ${bestSuggestion.type}")
                         
-                        // For all suggestions, create inline text elements
+                        // Ensure only one suggestion type is shown at a time
                         when (bestSuggestion.type) {
                             SuggestionType.SIMPLE_INSERTION -> {
+                                // For simple insertions, show inline completion only (no highlighting)
                                 val insertionText = bestSuggestion.changes.firstOrNull()?.newText ?: ""
                                 if (insertionText.isNotEmpty()) {
                                     val element = InlineCompletionTextElement(insertionText) { editor ->
-                                        TextAttributes() // Use default IDE styling
+                                        TextAttributes().apply {
+                                            backgroundColor = java.awt.Color(173, 216, 230, 128) // 50% opacity light blue
+                                        }
                                     }
                                     suggestionElements.value = element
                                     lastProcessedContextHash = contextHash
+                                    LOG.info("Showing simple insertion suggestion: '$insertionText'")
                                 }
                             }
                             SuggestionType.COMPLEX_EDIT, SuggestionType.MULTIPLE_CHANGES -> {
-                                // For complex edits, show the most impactful change as inline text
-                                // but store the full suggestion for when user accepts it
-                                val primaryChange = bestSuggestion.changes.firstOrNull()
-                                if (primaryChange != null) {
-                                    val changeText = when (primaryChange.type) {
-                                        ChangeType.INSERT -> primaryChange.newText
-                                        ChangeType.REPLACE -> primaryChange.newText
-                                        ChangeType.DELETE -> "" // Don't show deletions inline
-                                        else -> "" // Handle any future change types
-                                    }
+                                // For complex edits, show red highlighting AND green inlay hints ONLY
+                                if (bestSuggestion.changes.isNotEmpty()) {
+                                    val changeCount = bestSuggestion.changes.size
                                     
-                                    if (changeText.isNotEmpty()) {
-                                        // For multiple changes, show a summary instead of just the first change
-                                        val displayText = if (bestSuggestion.changes.size > 1) {
-                                            // Show a summary of what will be changed
-                                            val changeCount = bestSuggestion.changes.size
-                                            " // Apply $changeCount changes: ${bestSuggestion.description}"
-                                        } else {
-                                            changeText
-                                        }
-                                        
-                                        val element = InlineCompletionTextElement(displayText) { editor ->
-                                            TextAttributes() // Use default IDE styling
-                                        }
-                                        
-                                        if (bestSuggestion.changes.size > 1) {
-                                            LOG.info("Showing summary of ${bestSuggestion.changes.size} changes: ${bestSuggestion.description}")
-                                            LOG.debug("Full changes: ${bestSuggestion.changes}")
-                                        }
-                                        suggestionElements.value = element
-                                        lastProcessedContextHash = contextHash
-                                    }
+                                    // Highlight the lines to be replaced in soft red AND show green inlays
+                                    changeHighlighter.highlightChanges(editor, bestSuggestion.changes)
+                                    
+                                    // Store the changes for later application and setup the action
+                                    currentComplexEditChanges = bestSuggestion.changes
+                                    currentEditor = editor
+                                    ApplyComplexEditAction.setCurrentChanges(bestSuggestion.changes, changeHighlighter, editor)
+                                    
+                                    LOG.info("Showing complex edit with red highlighting and green inlays")
+                                    LOG.debug("Full changes: ${bestSuggestion.changes}")
+                                    
+                                    // CRITICAL: Don't set suggestionElements.value for complex edits - use inlay hints instead
+                                    // This ensures simple inline suggestions never show with complex edits
+                                    lastProcessedContextHash = contextHash
                                 }
                             }
                         }
                     } else {
-                        // Fallback to original completion logic
+                        // Fallback to original completion logic (simple inline completion only)
                         LOG.debug("No next edit suggestions, falling back to original completion logic for request $requestId...")
                         val completion = openAIService.getCompletion(context, language)
                         LOG.info("AI completion for request $requestId: '$completion'")
@@ -333,7 +334,9 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
                         if (completion != null && completion.isNotBlank()) {
                             LOG.info("Creating AI suggestion with completion for request $requestId: '$completion'")
                             val element = InlineCompletionTextElement(completion) { editor ->
-                                TextAttributes() // Use default IDE styling
+                                TextAttributes().apply {
+                                    backgroundColor = java.awt.Color(173, 216, 230, 128) // 50% opacity light blue
+                                }
                             }
                             suggestionElements.value = element
                             lastProcessedContextHash = contextHash
@@ -378,4 +381,69 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
             null
         }
     }
+    
+    private fun buildNewTextFromChanges(changes: List<com.github.kaylamle.sweeble.services.CodeChange>, editor: Editor): String {
+        val document = editor.document
+        
+        return buildString {
+            changes.forEachIndexed { index, change ->
+                when (change.type) {
+                    ChangeType.INSERT -> {
+                        // For insertions, add the new text as complete lines
+                        if (index > 0) append("\n")
+                        append(change.newText)
+                    }
+                    ChangeType.REPLACE -> {
+                        // For replacements, show the new text as complete lines
+                        if (index > 0) append("\n")
+                        append(change.newText)
+                    }
+                    ChangeType.DELETE -> {
+                        // For deletions, don't show anything in inline completion
+                        // The red highlighting will show what's being deleted
+                    }
+                }
+            }
+        }.trim() // Remove any trailing whitespace
+    }
+    
+    private fun applyComplexEditChanges() {
+        val changes = currentComplexEditChanges ?: return
+        val editor = currentEditor ?: return
+        
+        ApplicationManager.getApplication().runWriteAction {
+            // Sort changes by offset in reverse order to avoid offset shifting
+            val sortedChanges = changes.sortedByDescending { it.startOffset }
+            
+            sortedChanges.forEach { change ->
+                when (change.type) {
+                    ChangeType.REPLACE -> {
+                        editor.document.replaceString(change.startOffset, change.endOffset, change.newText)
+                    }
+                    ChangeType.INSERT -> {
+                        editor.document.insertString(change.startOffset, change.newText)
+                    }
+                    ChangeType.DELETE -> {
+                        editor.document.deleteString(change.startOffset, change.endOffset)
+                    }
+                }
+            }
+        }
+        
+        // Cleanup highlighters
+        changeHighlighter.cleanup()
+        currentComplexEditChanges = null
+        currentEditor = null
+    }
+    
+    private fun filterInlineCompletionText(text: String): String {
+        // Remove any inline completion text that might be present
+        // This is a simple approach - in a real implementation, you'd need to track
+        // what text was added by inline completions and filter it out
+        return text
+    }
+    
+
+    
+
 }
