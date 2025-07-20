@@ -23,15 +23,40 @@ class OpenAIService {
         .connectTimeout(Duration.ofSeconds(3)) // Faster timeout
         .build()
 
+    private fun getApiKey(): String? {
+        // First, try to get API key from plugin settings
+        val settings = SweebleSettingsState.getInstance()
+        val settingsKey = settings.openaiApiKey
+
+        if (settingsKey.isNotBlank()) {
+            LOG.info("Using OpenAI API key from plugin settings")
+            return settingsKey
+        }
+        
+        // Fall back to system environment variable
+        val envKey = System.getenv("OPENAI_API_KEY")
+
+        if (!envKey.isNullOrBlank()) {
+            LOG.info("Using OpenAI API key from system environment")
+            return envKey
+        }
+        
+        // No API key found
+        LOG.error("No OpenAI API key found in plugin settings or system environment")
+        return null
+    }
+
     suspend fun getCompletion(prompt: String, language: String, maxTokens: Int = 100, temperature: Double = 0.3): String? {
         return try {
             LOG.info("OpenAIService: Starting completion request")
-            val apiKey = System.getenv("OPENAI_API_KEY")
+            val apiKey = getApiKey()
+
             if (apiKey.isNullOrBlank()) {
-                LOG.warn("OpenAI API key not found in environment variables")
+                LOG.error("OpenAI API key not found. Please configure it in Settings > Tools > Sweeble AI Assistant or set the OPENAI_API_KEY environment variable.")
                 return null
             }
-            LOG.info("OpenAI API key found (length: [${apiKey.length})")
+
+            LOG.info("OpenAI API key found (length: ${apiKey.length} characters)")
             val escapedPrompt = prompt
                 .replace("\\", "\\\\")
                 .replace("\"", "\\\"")

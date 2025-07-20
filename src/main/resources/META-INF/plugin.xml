@@ -10,5 +10,13 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <inline.completion.provider id="SweebleInlineCompletionProvider" implementation="com.github.kaylamle.sweeble.inline.SweebleInlineCompletionProvider" />
+        
+        <!-- Settings components -->
+        <applicationService serviceImplementation="com.github.kaylamle.sweeble.services.SweebleSettingsState" />
+        <applicationConfigurable 
+            parentId="tools" 
+            instance="com.github.kaylamle.sweeble.services.SweebleSettingsConfigurable"
+            id="com.github.kaylamle.sweeble.services.SweebleSettingsConfigurable"
+            displayName="Sweeble AI Assistant" />
     </extensions>
 </idea-plugin>

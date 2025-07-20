@@ -14,6 +14,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import com.github.kaylamle.sweeble.services.OpenAIService
+import com.github.kaylamle.sweeble.services.SweebleSettingsState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import java.awt.Color
@@ -175,6 +176,27 @@ class SweebleInlineCompletionProvider : InlineCompletionProvider {
             LOG.debug("No meaningful context, returning empty suggestion")
             return createEmptySuggestion()
         }
+        
+        // Check if API key is available
+        val settings = SweebleSettingsState.getInstance()
+        val envKey = System.getenv("OPENAI_API_KEY")
+        if (settings.openaiApiKey.isBlank() && (envKey.isNullOrBlank())) {
+            LOG.warn("No OpenAI API key configured")
+            return object : InlineCompletionSuggestion() {
+                override val suggestionFlow: Flow<InlineCompletionElement> = flowOf(
+                    InlineCompletionTextElement(" // Configure OpenAI API key in Settings > Tools > Sweeble AI Assistant") { editor ->
+                        TextAttributes().apply {
+                            foregroundColor = Color.ORANGE
+                            fontType = 0
+                        }
+                    }
+                )
+                override fun toString(): String {
+                    return "SweebleConfigSuggestion"
+                }
+            }
+        }
+        
         LOG.debug("Calling OpenAI API for completion...")
         val completion = openAIService.getCompletion(context, language)
         LOG.info("AI completion: '$completion'")
