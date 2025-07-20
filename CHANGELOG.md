@@ -18,6 +18,10 @@
 - Enhanced error messages with helpful configuration guidance
 - Updated README with comprehensive documentation
 
+### Planned
+
+- **Next Edit Suggestion**: AI-powered code change suggestions (not just additions) - analyze existing code and suggest improvements, refactoring, and modifications
+
 ## [0.0.1] - 2024-07-19
 
 ### Added
