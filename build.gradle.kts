@@ -40,8 +40,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
     testImplementation("org.jetbrains.kotlin:kotlin-test")
-    testImplementation("org.mockito:mockito-core:5.2.0")
-    testImplementation("org.mockito:mockito-inline:5.2.0")
+    testImplementation("org.mockito:mockito-core:5.18.0")
+    testImplementation("org.mockito:mockito-inline:5.18.0")
     implementation("org.json:json:20231013")
 }
 
