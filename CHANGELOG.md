@@ -6,17 +6,39 @@
 
 ### Added
 
-- OpenAI API key configuration in plugin settings with fallback to system environment
-- Settings UI accessible via Settings > Tools > Sweeble AI Assistant
-- Visual feedback when API key is not configured (orange suggestion text)
-- Comprehensive error handling for missing API keys
-- Unit tests for settings functionality
+- **Intelligent Offset Calculation**: Programmatically calculates text offsets for precise replacements instead of relying on AI-provided offsets
+- **Fuzzy Text Matching**: Handles whitespace variations and partial matches for robust text replacement
+- **Cursor Marker Handling**: Strips `[CURSOR_HERE]` markers from AI responses before text matching
+- **Multiline Inlay Support**: Proper height calculation for multiline suggestions to prevent overflow
+- **Customizable Text Colors**: Configurable foreground and background colors for inline suggestions
+- **Complete Line Replacement**: AI now provides complete corrected lines instead of partial replacements
+- **Enhanced Visual Feedback**: Improved highlighting and inlay rendering for better user experience
+- **Comprehensive Test Coverage**: Tests for offset calculation, cursor marker handling, and multiline rendering
 
 ### Changed
 
-- Improved API key resolution logic (settings → environment → error)
-- Enhanced error messages with helpful configuration guidance
-- Updated README with comprehensive documentation
+- **AI Prompt Engineering**: Updated system prompt to request complete corrected lines rather than partial text
+- **Offset Calculation Logic**: Moved from AI-provided offsets to programmatic calculation for better accuracy
+- **Visual Appearance**: Changed inline suggestion background from light blue to low opacity turquoise for better readability
+- **Text Matching Strategy**: Implemented fuzzy matching with normalized whitespace handling
+- **Inlay Rendering**: Fixed multiline inlay overflow by implementing proper height calculation
+- **Highlighting Behavior**: Entire lines are now highlighted for complex edits to show complete scope
+
+### Fixed
+
+- **Multiline Inlay Overflow**: Inlays now properly fit within editor bounds with correct height calculation
+- **Cursor Marker Interference**: Text matching no longer fails due to `[CURSOR_HERE]` markers in AI responses
+- **Partial Line Replacement**: AI now provides complete corrected lines, preventing partial replacements
+- **Coordinate System Mismatches**: Fixed offset calculation issues between AI context and editor document
+- **Visual Readability**: Improved inline suggestion colors for better visibility across different themes
+- **Duplicate Test Functions**: Consolidated and cleaned up test cases
+
+### Technical Improvements
+
+- **OffsetCalculationService**: New service for programmatic offset calculation with fuzzy matching
+- **ChangeHighlighter**: Enhanced visual rendering with proper multiline support
+- **OpenAIService**: Updated prompt engineering and response parsing for complete line corrections
+- **Test Infrastructure**: Comprehensive test coverage for new offset calculation and visual rendering features
 
 ## [0.0.1] - 2024-07-19
 

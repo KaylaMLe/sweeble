@@ -14,6 +14,10 @@ Sweeble is an AI-powered inline completion plugin for IntelliJ IDEA that provide
 - ⚙️ **Flexible Configuration**: API key can be set in plugin settings or system environment
 - 🚀 **Real-time Suggestions**: Provides instant inline completions as you type
 - 🎨 **Visual Feedback**: Clear indication when API key needs to be configured
+- 🔧 **Smart Code Analysis**: Automatically detects when simple insertions can complete logical units vs when complex edits are needed
+- 🎯 **Intelligent Offset Calculation**: Programmatically calculates text offsets for precise replacements
+- 🔍 **Fuzzy Text Matching**: Handles whitespace variations and partial matches for robust text replacement
+- 🎨 **Customizable Appearance**: Configurable inline suggestion colors and highlighting
 
 **Requirements:**
 
@@ -30,6 +34,36 @@ Sweeble is an AI-powered inline completion plugin for IntelliJ IDEA that provide
 2. Go to <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>Marketplace</kbd>
 3. Search for "Sweeble"
 4. Click <kbd>Install</kbd>
+
+## 🎯 Usage
+
+### Inline Completions
+
+Sweeble provides intelligent inline completions as you type. Simply start typing in any supported file type, and you'll see ghost text suggestions appear with a customizable background color.
+
+### Smart Code Analysis
+
+Sweeble intelligently analyzes your code to determine the best type of suggestion:
+
+1. **Simple Insertions**: When a logical unit can be completed with just additional text
+2. **Complex Edits**: When existing code needs to be modified or corrected
+3. **No Suggestions**: When the code is complete and no suggestions are needed
+
+The plugin automatically detects the context and provides appropriate suggestions without manual intervention.
+
+### Visual Feedback
+
+- **Inline Suggestions**: Appear as ghost text with customizable background color
+- **Error States**: Clear indication when API key needs to be configured
+- **Smart Highlighting**: Entire lines are highlighted for complex edits to show what will be changed
+
+**Examples:**
+
+- **Simple Insertion**: Completing a function call with missing parameters
+- **Complex Edit**: Fixing a mistyped function parameter or adding missing braces
+- **Multiple Changes**: Suggesting fixes for syntax errors across multiple lines
+
+The plugin prioritizes the smallest possible changes and limits scope to the current logical unit (function, class, etc.).
 
 ### For Developers
 
@@ -93,14 +127,18 @@ set OPENAI_API_KEY=your-api-key-here
 sweeble/
 ├── src/main/kotlin/com/github/kaylamle/sweeble/
 │   ├── inline/
-│   │   └── SweebleInlineCompletionProvider.kt    # Main completion logic
-│   └── services/
-│       ├── OpenAIService.kt                      # OpenAI API integration
-│       ├── SweebleSettingsState.kt               # Settings persistence
-│       └── SweebleSettingsConfigurable.kt        # Settings UI
+│   │   └── SweebleMainPlugin.kt                 # Main completion logic
+│   ├── services/
+│   │   ├── OpenAIService.kt                     # OpenAI API integration
+│   │   ├── OffsetCalculationService.kt          # Text offset calculation
+│   │   ├── ChangeHighlighter.kt                 # Visual highlighting
+│   │   ├── SweebleSettingsState.kt              # Settings persistence
+│   │   └── SweebleSettingsConfigurable.kt       # Settings UI
+│   └── startup/
+│       └── MyProjectActivity.kt                 # Plugin startup
 ├── src/main/resources/META-INF/
-│   └── plugin.xml                                # Plugin configuration
-└── src/test/                                     # Unit tests
+│   └── plugin.xml                               # Plugin configuration
+└── src/test/                                    # Unit tests
 ```
 
 ### Building
@@ -128,12 +166,13 @@ sweeble/
 
 ### Key Components
 
-#### SweebleInlineCompletionProvider
+#### SweebleMainPlugin
 
 - Implements the IntelliJ Platform's inline completion API
 - Extracts context (500 chars before/after cursor)
 - Detects programming language automatically
 - Handles API key validation and error states
+- Manages suggestion classification and rendering
 
 #### OpenAIService
 
@@ -141,6 +180,21 @@ sweeble/
 - Implements API key resolution (settings → environment)
 - Handles request/response parsing
 - Provides error handling and logging
+- Generates both simple completions and complex edit suggestions
+
+#### OffsetCalculationService
+
+- Programmatically calculates text offsets for precise replacements
+- Handles cursor markers and whitespace variations
+- Implements fuzzy text matching for robust replacements
+- Strips cursor indicators from AI responses before matching
+
+#### ChangeHighlighter
+
+- Renders visual feedback for code changes
+- Highlights entire lines for complex edits
+- Manages inlay hints for multiline suggestions
+- Handles cleanup of visual elements
 
 #### Settings Management
 
@@ -155,7 +209,7 @@ sweeble/
 ./gradlew test
 
 # Run specific test
-./gradlew test --tests SweebleSettingsStateTest
+./gradlew test --tests OffsetCalculationServiceTest
 
 # Run with coverage
 ./gradlew koverReport
@@ -178,3 +232,9 @@ If you see an orange suggestion saying "Configure OpenAI API key...", it means n
 - **401 Unauthorized**: Check your API key is correct
 - **429 Rate Limited**: You've exceeded your OpenAI API rate limits
 - **Network Issues**: Check your internet connection
+
+### Visual Issues
+
+- **Inlay Overflow**: Multiline suggestions should now properly fit within the editor
+- **Color Visibility**: Inline suggestion colors can be customized in the code
+- **Highlighting**: Entire lines are highlighted for complex edits to show scope

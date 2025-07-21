@@ -9,7 +9,7 @@
     <depends>com.intellij.modules.lang</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <inline.completion.provider id="SweebleInlineCompletionProvider" implementation="com.github.kaylamle.sweeble.inline.SweebleInlineCompletionProvider" />
+        <inline.completion.provider id="SweebleMainPlugin" implementation="com.github.kaylamle.sweeble.inline.SweebleMainPlugin" />
         
         <!-- Settings components -->
         <applicationService serviceImplementation="com.github.kaylamle.sweeble.services.SweebleSettingsState" />
@@ -19,4 +19,17 @@
             id="com.github.kaylamle.sweeble.services.SweebleSettingsConfigurable"
             displayName="Sweeble AI Assistant" />
     </extensions>
+    
+    <actions>
+        <action id="Sweeble.ApplyComplexEdit" 
+                class="com.github.kaylamle.sweeble.actions.ApplyComplexEditAction" 
+                text="Apply Complex Edit" 
+                description="Apply the current complex edit suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="TAB" />
+        </action>
+    </actions>
+    
+
+    
+
 </idea-plugin>
