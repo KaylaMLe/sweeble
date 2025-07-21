@@ -293,7 +293,8 @@ class SweebleMainPlugin : InlineCompletionProvider {
                                 LOG.info("Simple completion successful for request $requestId: '$simpleCompletion'")
                                 val element = InlineCompletionTextElement(simpleCompletion) { editor ->
                                     TextAttributes().apply {
-                                        backgroundColor = java.awt.Color(173, 216, 230, 128) // 50% opacity light blue
+                                        backgroundColor = java.awt.Color(0, 35, 245, 120)
+                                        foregroundColor = java.awt.Color(200, 200, 200) // Light gray text color
                                     }
                                 }
                                 suggestionElements.value = element
